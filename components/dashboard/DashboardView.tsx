@@ -8,6 +8,7 @@ import {
   Wind,
   Sparkles,
   ChevronRight,
+  CalendarDays,
 } from "lucide-react";
 import { DashboardJournal } from "./DashboardJournal";
 
@@ -25,16 +26,25 @@ interface ParamConfig {
   color: string;
 }
 
+interface UpcomingAppointmentBanner {
+  type: string;
+  date: string;
+  time: string;
+}
+
 interface DashboardViewProps {
   latestScan: { skinScore: number; createdAt: Date; analysisResults?: unknown } | null;
   todayLog: { journalEntry?: string | null } | null;
   nextAppointment: { dateTime: Date; type: string; status: string } | null;
+  upcomingAppointmentBanner?: UpcomingAppointmentBanner | null;
   params: ParamConfig[];
   aiSummary: string;
   amItems: string[];
   pmItems: string[];
   amChecked: boolean;
   pmChecked: boolean;
+  routineScore?: number;
+  hydrationScore?: number;
 }
 
 const SVG_SIZE = 160;
@@ -47,12 +57,12 @@ const RING_STROKE = 8;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-const healthOverviewCards = [
-  { title: "Routine Consistency", value: 85, color: "text-teal-400", strokeColor: "rgb(45, 212, 191)", label: "AM/PM Schedule" },
-  { title: "Hydration Level", value: 92, color: "text-sky-400", strokeColor: "rgb(56, 189, 248)", label: "Skin Moisture" },
+const healthOverviewCardsConfig = [
+  { title: "Routine Consistency", color: "text-teal-400", strokeColor: "rgb(45, 212, 191)", label: "AM/PM Schedule" },
+  { title: "Hydration Level", color: "text-sky-400", strokeColor: "rgb(56, 189, 248)", label: "Skin Moisture" },
 ];
 
-function HealthOverviewCard({ title, value, color, strokeColor, label, delay = 0 }: (typeof healthOverviewCards)[0] & { delay?: number }) {
+function HealthOverviewCard({ title, value, color, strokeColor, label, delay = 0 }: (typeof healthOverviewCardsConfig)[0] & { value: number; delay?: number }) {
   const strokeOffset = RING_CIRCUMFERENCE * (1 - value / 100);
   const shadowColor = strokeColor.replace("rgb(", "rgba(").replace(")", ", 0.5)");
   return (
@@ -104,14 +114,21 @@ export function DashboardView({
   latestScan,
   todayLog,
   nextAppointment,
+  upcomingAppointmentBanner,
   params,
   aiSummary,
   amItems,
   pmItems,
   amChecked,
   pmChecked,
+  routineScore = 85,
+  hydrationScore = 92,
 }: DashboardViewProps) {
   const scoreProgress = latestScan ? latestScan.skinScore / 100 : 0;
+  const healthOverviewCards = [
+    { ...healthOverviewCardsConfig[0], value: routineScore },
+    { ...healthOverviewCardsConfig[1], value: hydrationScore },
+  ];
   const strokeOffset = CIRCUMFERENCE * (1 - scoreProgress);
 
   return (
@@ -198,6 +215,34 @@ export function DashboardView({
           </motion.div>
         </div>
       </section>
+
+      {/* Upcoming Appointment Banner */}
+      {upcomingAppointmentBanner && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.15, duration: 0.5 }}
+          className="flex items-center justify-between rounded-xl border border-teal-800/50 bg-teal-950/30 p-4"
+        >
+          <div className="flex items-center gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/20">
+              <CalendarDays className="h-5 w-5 text-teal-400" />
+            </div>
+            <div>
+              <p className="font-semibold text-white">{upcomingAppointmentBanner.type}</p>
+              <p className="text-sm text-zinc-400">
+                {upcomingAppointmentBanner.date} at {upcomingAppointmentBanner.time}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="rounded-lg border border-teal-500/50 bg-transparent px-4 py-2 text-sm font-medium text-teal-400 transition-colors hover:bg-teal-500/10"
+          >
+            Add to Google Calendar
+          </button>
+        </motion.div>
+      )}
 
       {/* Recommendation Banner */}
       <motion.div
@@ -332,46 +377,6 @@ export function DashboardView({
         </motion.section>
       </div>
 
-      {/* Upcoming Appointment */}
-      {nextAppointment?.dateTime && (
-        <motion.section
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6, duration: 0.5 }}
-          className="rounded-3xl border border-zinc-800 bg-zinc-900/50 p-4"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="rounded-xl border border-zinc-700 bg-zinc-800/80 px-3 py-2 text-center">
-                <span className="block text-xs font-medium text-zinc-400">
-                  {new Date(nextAppointment.dateTime).toLocaleString("default", {
-                    month: "short",
-                  })}
-                </span>
-                <span className="block text-xl font-bold text-teal-400">
-                  {new Date(nextAppointment.dateTime).getDate()}
-                </span>
-              </div>
-              <div>
-                <p className="font-semibold text-white">{nextAppointment.type}</p>
-                <p className="text-sm text-zinc-400">
-                  {nextAppointment.status} •{" "}
-                  {new Date(nextAppointment.dateTime).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/dashboard/schedules"
-              className="rounded-full border border-teal-400/50 bg-teal-400/10 px-4 py-2 text-sm font-medium text-teal-400 transition-colors hover:bg-teal-400/20"
-            >
-              View Details
-            </Link>
-          </div>
-        </motion.section>
-      )}
     </div>
   );
 }

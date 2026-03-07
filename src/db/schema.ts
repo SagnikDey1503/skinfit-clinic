@@ -5,11 +5,13 @@ import {
   varchar,
   timestamp,
   integer,
+  serial,
   jsonb,
   boolean,
   date,
   pgEnum,
 } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
 
 // Enums
 export const userRoleEnum = pgEnum("user_role", ["patient", "doctor", "admin"]);
@@ -36,7 +38,25 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Skin scans (AI face scans)
+// Scans (dummy scanner / AI skin analysis results)
+export const scans = pgTable("scans", {
+  id: serial("id").primaryKey(),
+  scanName: varchar("scan_name", { length: 255 }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  imageUrl: text("image_url").notNull(),
+  overallScore: integer("overall_score").notNull(),
+  acne: integer("acne").notNull(),
+  pigmentation: integer("pigmentation").notNull(),
+  wrinkles: integer("wrinkles").notNull(),
+  hydration: integer("hydration").notNull(),
+  texture: integer("texture").notNull(),
+  aiSummary: text("ai_summary"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Skin scans (AI face scans - legacy)
 export const skinScans = pgTable("skin_scans", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -84,3 +104,11 @@ export const appointments = pgTable("appointments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Relations: users <-> scans (one-to-many)
+export const usersRelations = relations(users, ({ many }) => ({
+  scans: many(scans),
+}));
+
+export const scansRelations = relations(scans, ({ one }) => ({
+  user: one(users),
+}));

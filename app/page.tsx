@@ -363,10 +363,13 @@ export default function Home() {
                 </div>
               </div>
 
-              <Button size="lg" className="w-full shadow-lg shadow-teal-600/20 md:w-auto">
+              <Link
+                href="/dashboard/scan"
+                className="inline-flex w-full items-center justify-center rounded-full bg-teal-600 px-5 py-2.5 text-base font-medium text-white shadow-lg shadow-teal-600/20 transition-colors hover:bg-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 md:w-auto"
+              >
                 <Zap className="mr-2 h-5 w-5" />
                 Start Analysis Now
-              </Button>
+              </Link>
             </div>
           </div>
         </div>

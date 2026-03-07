@@ -35,6 +35,12 @@ export default function DashboardLayout({
               Treatment History
             </Link>
             <Link
+              href="/dashboard/scan"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-600"
+            >
+              AI Scan
+            </Link>
+            <Link
               href="/dashboard/schedules"
               className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-600"
             >
