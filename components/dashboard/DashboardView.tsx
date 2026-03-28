@@ -1,382 +1,338 @@
 "use client";
 
-import Link from "next/link";
-import { motion } from "framer-motion";
-import {
-  Target,
-  Droplets,
-  Wind,
-  Sparkles,
-  ChevronRight,
-  CalendarDays,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { format } from "date-fns";
+import { Sun, Moon, SunMoon, ChevronsUp } from "lucide-react";
 import { DashboardJournal } from "./DashboardJournal";
 
-const ICON_MAP = {
-  Target,
-  Droplets,
-  Wind,
-  Sparkles,
-} as const;
+const PINK = "#F8A5B2";
+const BLUE = "#CCE4F7";
+const MINT = "#E0F0ED";
+const TEAL = "#6B8E8E";
 
-interface ParamConfig {
+interface SkinParam {
   label: string;
-  value: number | string;
-  icon: keyof typeof ICON_MAP;
-  color: string;
-}
-
-interface UpcomingAppointmentBanner {
-  type: string;
-  date: string;
-  time: string;
+  value: number;
 }
 
 interface DashboardViewProps {
   latestScan: { skinScore: number; createdAt: Date; analysisResults?: unknown } | null;
   todayLog: { journalEntry?: string | null } | null;
-  nextAppointment: { dateTime: Date; type: string; status: string } | null;
-  upcomingAppointmentBanner?: UpcomingAppointmentBanner | null;
-  params: ParamConfig[];
-  aiSummary: string;
+  params: SkinParam[];
   amItems: string[];
   pmItems: string[];
   amChecked: boolean;
   pmChecked: boolean;
   routineScore?: number;
-  hydrationScore?: number;
+  weeklyChangePercent?: number;
+  doctorFeedback?: string | null;
 }
 
-const SVG_SIZE = 160;
-const STROKE_WIDTH = 10;
-const RADIUS = (SVG_SIZE - STROKE_WIDTH) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const DONUT = 104;
+const STROKE = 9;
+const R = (DONUT - STROKE) / 2;
+const CIRC = 2 * Math.PI * R;
 
-const RING_SIZE = 120;
-const RING_STROKE = 8;
-const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-
-const healthOverviewCardsConfig = [
-  { title: "Routine Consistency", color: "text-teal-400", strokeColor: "rgb(45, 212, 191)", label: "AM/PM Schedule" },
-  { title: "Hydration Level", color: "text-sky-400", strokeColor: "rgb(56, 189, 248)", label: "Skin Moisture" },
-];
-
-function HealthOverviewCard({ title, value, color, strokeColor, label, delay = 0 }: (typeof healthOverviewCardsConfig)[0] & { value: number; delay?: number }) {
-  const strokeOffset = RING_CIRCUMFERENCE * (1 - value / 100);
-  const shadowColor = strokeColor.replace("rgb(", "rgba(").replace(")", ", 0.5)");
+function DonutGauge({
+  percent,
+  label,
+  extra,
+}: {
+  percent: number;
+  label: string;
+  extra?: "weekly";
+}) {
+  const clamped = Math.min(100, Math.max(0, percent));
+  const offset = CIRC * (1 - clamped / 100);
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay }}
-      className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6"
-    >
-      <p className="mb-2 text-sm font-semibold text-zinc-400">{title}</p>
-      <div className="relative mx-auto flex h-32 w-32 items-center justify-center">
+    <div className="flex flex-col items-center">
+      <div
+        className="relative flex items-center justify-center"
+        style={{ width: DONUT, height: DONUT }}
+      >
         <svg
-          width={RING_SIZE}
-          height={RING_SIZE}
-          className="absolute"
-          style={{ transform: "rotate(-90deg)" }}
+          width={DONUT}
+          height={DONUT}
+          className="absolute -rotate-90"
+          aria-hidden
         >
           <circle
-            cx={RING_SIZE / 2}
-            cy={RING_SIZE / 2}
-            r={RING_RADIUS}
+            cx={DONUT / 2}
+            cy={DONUT / 2}
+            r={R}
             fill="none"
-            stroke="rgb(39 39 42)"
-            strokeWidth={RING_STROKE}
+            stroke={BLUE}
+            strokeWidth={STROKE}
           />
-          <motion.circle
-            cx={RING_SIZE / 2}
-            cy={RING_SIZE / 2}
-            r={RING_RADIUS}
+          <circle
+            cx={DONUT / 2}
+            cy={DONUT / 2}
+            r={R}
             fill="none"
-            stroke={strokeColor}
-            strokeWidth={RING_STROKE}
+            stroke={PINK}
+            strokeWidth={STROKE}
             strokeLinecap="round"
-            strokeDasharray={RING_CIRCUMFERENCE}
-            initial={{ strokeDashoffset: RING_CIRCUMFERENCE }}
-            animate={{ strokeDashoffset: strokeOffset }}
-            transition={{ duration: 1.5, ease: "easeOut" }}
-            style={{ filter: `drop-shadow(0 0 6px ${shadowColor})` }}
+            strokeDasharray={CIRC}
+            strokeDashoffset={offset}
+            style={{ transition: "stroke-dashoffset 0.8s ease-out" }}
           />
         </svg>
-        <span className={`relative z-10 text-2xl font-bold ${color}`}>{value}%</span>
+        <div className="relative z-10 flex flex-col items-center justify-center text-center">
+          {extra === "weekly" && (
+            <ChevronsUp className="mb-0.5 h-5 w-5 text-emerald-600" strokeWidth={2.5} />
+          )}
+          <span className="text-xl font-bold tracking-tight text-zinc-900">
+            {clamped}%
+          </span>
+        </div>
       </div>
-      <p className="mt-2 text-center text-xs text-zinc-500">{label}</p>
-    </motion.div>
+      <p className="mt-2 max-w-[7rem] text-center text-xs font-semibold leading-tight text-zinc-800">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function ParamCell({ label, value }: SkinParam) {
+  const v = Math.min(100, Math.max(0, Math.round(value)));
+  return (
+    <div
+      className="rounded-[18px] px-4 py-3 shadow-inner"
+      style={{ backgroundColor: MINT }}
+    >
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="text-sm font-semibold text-zinc-800">{label}</span>
+        <span className="text-xs font-medium tabular-nums text-zinc-600">
+          {v}/100
+        </span>
+      </div>
+      <div
+        className="h-2.5 overflow-hidden rounded-full"
+        style={{ backgroundColor: "rgba(107, 142, 142, 0.25)" }}
+      >
+        <div
+          className="h-full rounded-full transition-[width] duration-500"
+          style={{ width: `${v}%`, backgroundColor: TEAL }}
+        />
+      </div>
+    </div>
   );
 }
 
 export function DashboardView({
   latestScan,
   todayLog,
-  nextAppointment,
-  upcomingAppointmentBanner,
   params,
-  aiSummary,
   amItems,
   pmItems,
   amChecked,
   pmChecked,
-  routineScore = 85,
-  hydrationScore = 92,
+  routineScore = 80,
+  weeklyChangePercent = 5,
+  doctorFeedback = "",
 }: DashboardViewProps) {
-  const scoreProgress = latestScan ? latestScan.skinScore / 100 : 0;
-  const healthOverviewCards = [
-    { ...healthOverviewCardsConfig[0], value: routineScore },
-    { ...healthOverviewCardsConfig[1], value: hydrationScore },
-  ];
-  const strokeOffset = CIRCUMFERENCE * (1 - scoreProgress);
+  const displayDate = format(new Date(), "dd/MM/yy");
+
+  const skinPercent = latestScan
+    ? Math.min(100, Math.max(0, Math.round(latestScan.skinScore)))
+    : 40;
+
+  const [amDone, setAmDone] = useState(() =>
+    amItems.map(() => amChecked)
+  );
+  const [pmDone, setPmDone] = useState(() =>
+    pmItems.map(() => pmChecked)
+  );
+
+  const toggleAm = (i: number) => {
+    setAmDone((prev) => {
+      const next = [...prev];
+      next[i] = !next[i];
+      return next;
+    });
+  };
+  const togglePm = (i: number) => {
+    setPmDone((prev) => {
+      const next = [...prev];
+      next[i] = !next[i];
+      return next;
+    });
+  };
+
+  const gridParams = useMemo(() => {
+    const labels = ["Acne", "Wrinkle", "Pores", "Pigmentation", "Hydration", "Eczema"];
+    const byLabel = Object.fromEntries(params.map((p) => [p.label, p.value]));
+    return labels.map((label) => ({
+      label,
+      value: typeof byLabel[label] === "number" ? byLabel[label] : 0,
+    }));
+  }, [params]);
 
   return (
-    <div className="space-y-6">
-      {/* Top Row: Routine | Skin Score | Hydration */}
-      <section>
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          {/* Left: Routine Consistency */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0 }}
-          >
-            <HealthOverviewCard {...healthOverviewCards[0]} delay={0} />
-          </motion.div>
-
-          {/* Center: Your Skin Score */}
-          <motion.section
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="flex flex-col items-center rounded-3xl border border-zinc-800 bg-zinc-900/50 p-6"
-          >
-            <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-              Your Skin Score
-            </h2>
-            <div className="relative flex h-40 w-40 items-center justify-center">
-              <svg
-                width={SVG_SIZE}
-                height={SVG_SIZE}
-                className="absolute"
-                style={{ transform: "rotate(-90deg)" }}
-              >
-                <circle
-                  cx={SVG_SIZE / 2}
-                  cy={SVG_SIZE / 2}
-                  r={RADIUS}
-                  fill="none"
-                  stroke="rgb(39 39 42)"
-                  strokeWidth={STROKE_WIDTH}
-                />
-                {latestScan && (
-                  <motion.circle
-                    cx={SVG_SIZE / 2}
-                    cy={SVG_SIZE / 2}
-                    r={RADIUS}
-                    fill="none"
-                    stroke="rgb(45 212 191)"
-                    strokeWidth={STROKE_WIDTH}
-                    strokeLinecap="round"
-                    strokeDasharray={CIRCUMFERENCE}
-                    initial={{ strokeDashoffset: CIRCUMFERENCE }}
-                    animate={{ strokeDashoffset: strokeOffset }}
-                    transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-                    style={{
-                      filter: "drop-shadow(0 0 8px rgba(45, 212, 191, 0.5))",
-                    }}
-                  />
-                )}
-              </svg>
-              <div className="relative z-10 flex h-full w-full items-center justify-center">
-                <div className="text-center">
-                  <span className="text-4xl font-bold text-teal-400">
-                    {latestScan?.skinScore ?? "--"}
-                  </span>
-                  <span className="block text-sm text-zinc-500">/100</span>
-                </div>
-              </div>
-            </div>
-            {latestScan?.createdAt && (
-              <p className="mt-3 text-xs text-zinc-500">
-                Last scan: {new Date(latestScan.createdAt).toLocaleDateString()}
-              </p>
-            )}
-          </motion.section>
-
-          {/* Right: Hydration Level */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <HealthOverviewCard {...healthOverviewCards[1]} delay={0} />
-          </motion.div>
+    <div className="space-y-6 text-zinc-900">
+      {/* Title + gauges */}
+      <section className="space-y-5">
+        <h1 className="text-center text-2xl font-bold tracking-tight text-zinc-900">
+          Dashboard
+        </h1>
+        <div className="flex flex-wrap items-start justify-center gap-8 md:gap-12">
+          <DonutGauge percent={skinPercent} label="Skin Score" />
+          <DonutGauge percent={routineScore} label="Consistency Score" />
+          <DonutGauge
+            percent={weeklyChangePercent}
+            label="Weekly Change"
+            extra="weekly"
+          />
         </div>
       </section>
 
-      {/* Upcoming Appointment Banner */}
-      {upcomingAppointmentBanner && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.15, duration: 0.5 }}
-          className="flex items-center justify-between rounded-xl border border-teal-800/50 bg-teal-950/30 p-4"
-        >
-          <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/20">
-              <CalendarDays className="h-5 w-5 text-teal-400" />
-            </div>
-            <div>
-              <p className="font-semibold text-white">{upcomingAppointmentBanner.type}</p>
-              <p className="text-sm text-zinc-400">
-                {upcomingAppointmentBanner.date} at {upcomingAppointmentBanner.time}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="rounded-lg border border-teal-500/50 bg-transparent px-4 py-2 text-sm font-medium text-teal-400 transition-colors hover:bg-teal-500/10"
-          >
-            Add to Google Calendar
-          </button>
-        </motion.div>
-      )}
-
-      {/* Recommendation Banner */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.4, duration: 0.5 }}
-        className="rounded-2xl border border-zinc-800 bg-zinc-800/50 px-6 py-4"
+      {/* AM/PM Schedule */}
+      <section
+        className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
+        style={{ boxShadow: "0 8px 30px rgba(0,0,0,0.06)" }}
       >
-        <p className="text-center text-sm leading-relaxed text-zinc-300">
-          {aiSummary}
-        </p>
-      </motion.div>
-
-      {/* Middle Section - Skin Parameters (staggered 2nd) */}
-      <motion.section
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.5 }}
-      >
-        <h3 className="mb-3 text-lg font-bold text-white">Skin Parameters</h3>
-        <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/50">
-          {params.map((param) => {
-            const Icon = ICON_MAP[param.icon];
-            return (
-              <motion.div
-                key={param.label}
-                whileHover={{ scale: 1.01, backgroundColor: "rgba(63, 63, 70, 0.4)" }}
-                transition={{ type: "spring", stiffness: 400, damping: 25 }}
-              >
-                <Link
-                  href="/dashboard/history"
-                  className="flex items-center justify-between border-b border-zinc-800 px-5 py-4 last:border-b-0"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-800">
-                      <Icon className={`h-5 w-5 ${param.color}`} />
-                    </div>
-                    <div>
-                      <span className="font-medium text-white">{param.label}</span>
-                      <span className="ml-2 text-teal-400">
-                        {typeof param.value === "number" ? `${param.value}/100` : param.value}
-                      </span>
-                    </div>
-                  </div>
-                  <motion.span
-                    className="inline-block text-zinc-500"
-                    whileHover={{ x: 4 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </motion.span>
-                </Link>
-              </motion.div>
-            );
-          })}
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-zinc-900">AM/PM Schedule</h2>
+          <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
         </div>
-      </motion.section>
 
-      {/* Bottom Section - Split Grid (staggered 3rd & 4th) */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Left Card - AM/PM Schedule */}
-        <motion.section
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.5 }}
-          className="rounded-3xl border border-zinc-800 bg-zinc-900/50 p-6"
-        >
-          <h3 className="mb-4 text-lg font-bold text-white">AM/PM Schedule</h3>
+        <div className="relative grid min-h-[220px] grid-cols-2 gap-0">
+          <div className="relative border-r border-zinc-200/90 pr-4 md:pr-8">
+            <Sun
+              className="pointer-events-none absolute left-1/2 top-1/2 h-28 w-28 -translate-x-1/2 -translate-y-1/2 text-amber-100/80"
+              strokeWidth={1}
+            />
+            <p className="relative z-10 mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              AM
+            </p>
+            <ul className="relative z-10 space-y-2.5">
+              {amItems.map((item, i) => (
+                <li key={item} className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleAm(i)}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors"
+                    style={{
+                      borderColor: TEAL,
+                      backgroundColor: amDone[i] ? TEAL : "transparent",
+                    }}
+                    aria-pressed={amDone[i]}
+                  >
+                    {amDone[i] && (
+                      <svg
+                        className="h-2.5 w-2.5 text-white"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                  <span className="text-sm text-zinc-800">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-          <div className="space-y-4">
-            <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                AM Routine
-              </h4>
-              <ul className="space-y-2">
-                {amItems.map((item) => (
-                  <li key={item} className="flex items-center gap-3">
-                    <motion.div
-                      whileTap={{ scale: 0.95 }}
-                      className={`flex h-5 w-5 shrink-0 cursor-default items-center justify-center rounded-full border-2 ${
-                        amChecked ? "border-teal-400 bg-teal-400" : "border-zinc-600"
-                      }`}
-                    >
-                      {amChecked && (
-                        <svg className="h-2.5 w-2.5 text-zinc-900" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </motion.div>
-                    <span className="text-sm text-zinc-300">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          <div className="relative pl-4 md:pl-8">
+            <Moon
+              className="pointer-events-none absolute left-1/2 top-1/2 h-28 w-28 -translate-x-1/2 -translate-y-1/2 text-slate-200/90"
+              strokeWidth={1}
+            />
+            <p className="relative z-10 mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              PM
+            </p>
+            <ul className="relative z-10 space-y-2.5">
+              {pmItems.map((item, i) => (
+                <li key={item} className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => togglePm(i)}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-zinc-300 bg-white transition-colors"
+                    style={
+                      pmDone[i]
+                        ? { borderColor: TEAL, backgroundColor: TEAL }
+                        : undefined
+                    }
+                    aria-pressed={pmDone[i]}
+                  >
+                    {pmDone[i] && (
+                      <svg
+                        className="h-2.5 w-2.5 text-white"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                  <span className="text-sm text-zinc-800">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-            <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                PM Routine
-              </h4>
-              <ul className="space-y-2">
-                {pmItems.map((item) => (
-                  <li key={item} className="flex items-center gap-3">
-                    <motion.div
-                      whileTap={{ scale: 0.95 }}
-                      className={`flex h-5 w-5 shrink-0 cursor-default items-center justify-center rounded-full border-2 ${
-                        pmChecked ? "border-teal-400 bg-teal-400" : "border-zinc-600"
-                      }`}
-                    >
-                      {pmChecked && (
-                        <svg className="h-2.5 w-2.5 text-zinc-900" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </motion.div>
-                    <span className="text-sm text-zinc-300">{item}</span>
-                  </li>
-                ))}
-              </ul>
+          <div className="pointer-events-none absolute left-1/2 top-0 z-20 flex -translate-x-1/2 flex-col items-center">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-zinc-100"
+              aria-hidden
+            >
+              <SunMoon className="h-4 w-4 text-amber-600/80" strokeWidth={2} />
             </div>
           </div>
-        </motion.section>
+        </div>
+      </section>
 
-        {/* Right Card - Daily Journal (staggered 4th) */}
-        <motion.section
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.5 }}
-          className="rounded-3xl border border-zinc-800 bg-zinc-900/50 p-6"
-        >
-          <h3 className="mb-4 text-lg font-bold text-white">Daily Journal</h3>
+      {/* Daily Journal — title outside card */}
+      <section>
+        <h2 className="mb-3 text-lg font-bold text-zinc-900">Daily Journal</h2>
+        <div className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6">
           <DashboardJournal initialEntry={todayLog?.journalEntry ?? undefined} />
-        </motion.section>
-      </div>
+        </div>
+      </section>
 
+      {/* Skin Parameters */}
+      <section
+        className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
+      >
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-zinc-900">Skin Parameters</h2>
+          <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {gridParams.map((p) => (
+            <ParamCell key={p.label} {...p} />
+          ))}
+        </div>
+      </section>
+
+      {/* Doctor's Feedback */}
+      <section
+        className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-zinc-900">Doctor&apos;s Feedback</h2>
+          <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
+        </div>
+        {doctorFeedback?.trim() ? (
+          <div className="min-h-[140px] rounded-[18px] border border-zinc-100 bg-zinc-50/80 px-4 py-3 text-sm leading-relaxed text-zinc-700">
+            {doctorFeedback}
+          </div>
+        ) : (
+          <div
+            className="min-h-[140px] rounded-[18px] border border-dashed border-zinc-200/90 bg-white"
+            aria-label="No feedback yet"
+          />
+        )}
+      </section>
     </div>
   );
 }

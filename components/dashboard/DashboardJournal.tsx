@@ -1,24 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
 
 interface DashboardJournalProps {
   initialEntry?: string | null;
 }
 
 const dummyHistory = [
-  { date: "Yesterday", text: "Skin felt a bit dry. Applied extra moisturizer in the PM." },
-  { date: "2 days ago", text: "Good skin day. Routine felt effective, no breakouts." },
-  { date: "3 days ago", text: "Slight redness on cheeks, probably from the new serum. Scaling back." },
+  {
+    date: "Yesterday",
+    text: "Skin felt a bit dry. Applied extra moisturizer in the PM.",
+  },
+  {
+    date: "2 days ago",
+    text: "Good skin day. Routine felt effective, no breakouts.",
+  },
+  {
+    date: "3 days ago",
+    text: "Slight redness on cheeks, probably from the new serum. Scaling back.",
+  },
 ];
+
+const MINT = "#E0F0ED";
+const TEAL = "#6B8E8E";
 
 export function DashboardJournal({ initialEntry = "" }: DashboardJournalProps) {
   const [journalText, setJournalText] = useState(initialEntry ?? "");
-  const [sleep, setSleep] = useState("");
-  const [stress, setStress] = useState("");
-  const [water, setWater] = useState("");
+  const [sleep, setSleep] = useState("0");
+  const [stress, setStress] = useState("0");
+  const [water, setWater] = useState("0");
   const [saved, setSaved] = useState(false);
+  const [historyIdx, setHistoryIdx] = useState(0);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,12 +38,22 @@ export function DashboardJournal({ initialEntry = "" }: DashboardJournalProps) {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const handlePrevious = () => {
+    const entry = dummyHistory[historyIdx % dummyHistory.length];
+    if (entry) {
+      setJournalText(entry.text);
+      setHistoryIdx((i) => i + 1);
+    }
+  };
+
+  const inputClass =
+    "w-full rounded-[14px] border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 tabular-nums shadow-sm focus:border-[#6B8E8E] focus:outline-none focus:ring-2 focus:ring-[#6B8E8E]/20";
+
   return (
     <form onSubmit={handleSave} className="space-y-4">
-      {/* Quick Daily Questions */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-400">
+          <label className="mb-1.5 block text-xs font-medium text-zinc-600">
             Hours of Sleep
           </label>
           <input
@@ -40,26 +62,24 @@ export function DashboardJournal({ initialEntry = "" }: DashboardJournalProps) {
             max={24}
             value={sleep}
             onChange={(e) => setSleep(e.target.value)}
-            placeholder="0"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+            className={inputClass}
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-400">
-            Stress (1–10)
+          <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+            Stress (1-10)
           </label>
           <input
             type="number"
-            min={1}
+            min={0}
             max={10}
             value={stress}
             onChange={(e) => setStress(e.target.value)}
-            placeholder="—"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+            className={inputClass}
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-400">
+          <label className="mb-1.5 block text-xs font-medium text-zinc-600">
             Water (glasses)
           </label>
           <input
@@ -67,41 +87,38 @@ export function DashboardJournal({ initialEntry = "" }: DashboardJournalProps) {
             min={0}
             value={water}
             onChange={(e) => setWater(e.target.value)}
-            placeholder="0"
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+            className={inputClass}
           />
         </div>
       </div>
 
-      {/* Journal Text Area */}
-      <div>
+      <div
+        className="rounded-[18px] p-4"
+        style={{ backgroundColor: MINT }}
+      >
         <textarea
           value={journalText}
           onChange={(e) => setJournalText(e.target.value)}
-          placeholder="How is your skin feeling today?"
-          rows={3}
-          className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400/30"
+          placeholder="How is your skin feeling today? Any changes or concerns?"
+          rows={5}
+          className="mb-4 w-full resize-none rounded-[14px] border border-white/60 bg-white/40 px-4 py-3 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-[#6B8E8E]/40 focus:outline-none focus:ring-2 focus:ring-[#6B8E8E]/15"
         />
-      </div>
-
-      <motion.button
-        type="submit"
-        whileTap={{ scale: 0.95 }}
-        className="w-full rounded-xl bg-teal-400 px-4 py-3 text-sm font-semibold text-zinc-900 shadow-[0_0_20px_rgba(45,212,191,0.3)] transition-opacity hover:opacity-90"
-      >
-        {saved ? "Saved!" : "Save Entry"}
-      </motion.button>
-
-      {/* History */}
-      <div className="max-h-48 overflow-y-auto border-t border-zinc-800 pt-4">
-        <p className="mb-2 text-xs font-medium text-zinc-500">Recent entries</p>
-        <div className="space-y-3">
-          {dummyHistory.map((entry, i) => (
-            <div key={i} className="rounded-lg border border-zinc-800/80 bg-zinc-800/30 p-3">
-              <p className="text-xs text-teal-400">{entry.date}</p>
-              <p className="mt-1 text-sm text-zinc-300">{entry.text}</p>
-            </div>
-          ))}
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="submit"
+            className="min-w-[120px] flex-1 rounded-[14px] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:flex-none"
+            style={{ backgroundColor: TEAL }}
+          >
+            {saved ? "Saved!" : "Save Entry"}
+          </button>
+          <button
+            type="button"
+            onClick={handlePrevious}
+            className="min-w-[120px] flex-1 rounded-[14px] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:flex-none"
+            style={{ backgroundColor: TEAL }}
+          >
+            Previous Entry
+          </button>
         </div>
       </div>
     </form>

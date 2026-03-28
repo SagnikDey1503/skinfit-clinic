@@ -53,6 +53,16 @@ export const scans = pgTable("scans", {
   hydration: integer("hydration").notNull(),
   texture: integer("texture").notNull(),
   aiSummary: text("ai_summary"),
+  /** Full Roboflow / AI score object (optional; legacy scans may omit) */
+  scores: jsonb("scores").$type<{
+    acneAndInflammation: number;
+    wrinkles: number;
+    pigmentation: number;
+    hydration: number;
+    overallHealth: number;
+  }>(),
+  /** Bounding-box annotations from Roboflow (optional) */
+  annotations: jsonb("annotations").$type<unknown[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

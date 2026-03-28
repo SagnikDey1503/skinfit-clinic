@@ -113,6 +113,9 @@ export async function POST(request: NextRequest) {
         detected_regions,
         ai_summary: aiSummary,
         id: inserted?.id,
+        userName: user.name,
+        scanDate:
+          inserted?.createdAt?.toISOString?.() ?? new Date().toISOString(),
       },
     });
   } catch (error) {

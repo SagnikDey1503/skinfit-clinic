@@ -1,82 +1,84 @@
 "use client";
 
+import { useRef } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { Button } from "../components/ui/Button";
-import {
-  Sparkles,
-  Scan,
-  Zap,
-  Target,
-  Droplets,
-  Wind,
-  Users,
-  Award,
-  Phone,
-  Mail,
-  MapPin,
-  ChevronRight,
-  Star,
-  Play,
-} from "lucide-react";
-
-const fadeInUp = {
-  initial: { opacity: 0, y: 24 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true },
-  transition: { duration: 0.5 },
-};
+import { motion, useScroll, useTransform } from "framer-motion";
+import { Sparkles, Scan } from "lucide-react";
 
 export default function Home() {
-  const serviceCards = [
-    {
-      href: "/services",
-      icon: Target,
-      iconBg: "from-teal-50 to-teal-100",
-      iconColor: "text-teal-600",
-      title: "Acne Treatment",
-      description:
-        "Medical-grade protocols combining peels, lasers, and prescription treatments to clear breakouts and prevent scarring.",
-    },
-    {
-      href: "/services",
-      icon: Droplets,
-      iconBg: "from-amber-50 to-amber-100",
-      iconColor: "text-amber-600",
-      title: "Pigmentation",
-      description:
-        "Advanced treatments for melasma, sun damage, and uneven skin tone using cutting-edge laser technology.",
-    },
-    {
-      href: "/services",
-      icon: Sparkles,
-      iconBg: "from-purple-50 to-purple-100",
-      iconColor: "text-purple-600",
-      title: "Wrinkles & Anti-Aging",
-      description:
-        "Non-surgical solutions including injectables, threads, and collagen-boosting therapies for natural, youthful results.",
-    },
-    {
-      href: "/services",
-      icon: Wind,
-      iconBg: "from-emerald-50 to-emerald-100",
-      iconColor: "text-emerald-600",
-      title: "Hair Loss & Scalp Health",
-      description:
-        "Trichology-focused care combining medical treatments and regenerative therapies for hair fall and thinning.",
-    },
-  ];
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+  });
+
+  // Scene 1: The Hero (0.0 to 0.2)
+  const heroOpacity = useTransform(scrollYProgress, [0, 0.1, 0.2], [1, 1, 0]);
+  const phoneScale = useTransform(scrollYProgress, [0, 0.1, 0.2], [0.8, 1, 2]);
+  const phoneY = useTransform(
+    scrollYProgress,
+    [0, 0.1, 0.2],
+    ["20vh", "0vh", "-100vh"]
+  );
+
+  // Scene 2: The 8-Engine AI Tech (0.2 to 0.5)
+  const techOpacity = useTransform(
+    scrollYProgress,
+    [0.2, 0.25, 0.45, 0.5],
+    [0, 1, 1, 0]
+  );
+  const techY = useTransform(
+    scrollYProgress,
+    [0.2, 0.25, 0.45, 0.5],
+    ["10vh", "0vh", "0vh", "-10vh"]
+  );
+  const acneCardOpacity = useTransform(
+    scrollYProgress,
+    [0.25, 0.3, 0.4],
+    [0, 1, 1]
+  );
+  const wrinklesCardOpacity = useTransform(
+    scrollYProgress,
+    [0.28, 0.33, 0.4],
+    [0, 1, 1]
+  );
+  const pigmentationCardOpacity = useTransform(
+    scrollYProgress,
+    [0.31, 0.36, 0.4],
+    [0, 1, 1]
+  );
+
+  // Scene 3: The B2B2C Ecosystem (0.5 to 0.8)
+  const ecoOpacity = useTransform(
+    scrollYProgress,
+    [0.5, 0.55, 0.75, 0.8],
+    [0, 1, 1, 0]
+  );
+  const patientSideX = useTransform(
+    scrollYProgress,
+    [0.5, 0.6],
+    ["-50vw", "0vw"]
+  );
+  const clinicSideX = useTransform(
+    scrollYProgress,
+    [0.5, 0.6],
+    ["50vw", "0vw"]
+  );
+
+  // Scene 4: The Final CTA (0.8 to 1.0)
+  const ctaOpacity = useTransform(scrollYProgress, [0.8, 0.9, 1], [0, 1, 1]);
+  const ctaScale = useTransform(scrollYProgress, [0.8, 0.9, 1], [0.9, 1, 1]);
 
   return (
-    <div className="min-h-screen bg-white text-slate-800">
-      {/* Sticky Navbar */}
-      <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur-md">
+    <div className="min-h-screen bg-zinc-950 text-white">
+      {/* Sticky Navbar - dark theme */}
+      <nav className="sticky top-0 z-50 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-teal-600 text-white shadow-lg shadow-teal-600/30">
               <Sparkles className="h-5 w-5" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-slate-800">
+            <span className="text-xl font-bold tracking-tight text-white">
               SkinFit
             </span>
           </Link>
@@ -84,631 +86,277 @@ export default function Home() {
           <div className="hidden items-center gap-8 md:flex">
             <Link
               href="/"
-              className="text-sm font-medium text-teal-600 transition-colors hover:text-teal-700"
+              className="text-sm font-medium text-teal-400 transition-colors hover:text-teal-300"
             >
               Home
             </Link>
             <Link
               href="/services"
-              className="text-sm font-medium text-slate-600 transition-colors hover:text-teal-600"
+              className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
             >
               Services
             </Link>
             <Link
               href="/blog"
-              className="text-sm font-medium text-slate-600 transition-colors hover:text-teal-600"
+              className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
             >
-              Blog/Education
+              Blog
             </Link>
             <Link
               href="/about"
-              className="text-sm font-medium text-slate-600 transition-colors hover:text-teal-600"
+              className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
             >
-              About Us
+              About
             </Link>
             <Link
               href="/contact"
-              className="text-sm font-medium text-slate-600 transition-colors hover:text-teal-600"
+              className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
             >
               Contact
             </Link>
           </div>
 
-          <Link href="/login">
-            <Button size="md" variant="primary">
-              Patient Login
-            </Button>
+          <Link
+            href="/login"
+            className="rounded-full bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-[0_0_20px_rgba(20,184,166,0.3)] transition-all hover:bg-teal-500 hover:shadow-[0_0_30px_rgba(20,184,166,0.4)]"
+          >
+            <Scan className="mr-2 inline-block h-4 w-4" />
+            Patient Login
           </Link>
         </div>
       </nav>
 
-      {/* Hero Section - Full Screen with Aurora Background */}
-      <section className="relative min-h-screen overflow-hidden">
-        {/* Aurora Background - Animated Gradient Orbs */}
-        <div className="absolute inset-0 z-0 overflow-hidden">
-          {/* Base dark gradient */}
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950" />
-
-          {/* Orb 1 - Teal */}
-          <motion.div
-            className="absolute -left-32 -top-32 h-[600px] w-[600px] rounded-full opacity-60"
-            style={{
-              background: "radial-gradient(circle, rgba(20, 184, 166, 0.5) 0%, rgba(20, 184, 166, 0.15) 50%, transparent 70%)",
-            }}
-            animate={{
-              x: [0, 80, -40, 0],
-              y: [0, -60, 50, 0],
-              scale: [1, 1.3, 0.9, 1],
-            }}
-            transition={{
-              duration: 20,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          />
-          {/* Orb 2 - Cyan */}
-          <motion.div
-            className="absolute -right-48 top-1/4 h-[500px] w-[500px] rounded-full opacity-50"
-            style={{
-              background: "radial-gradient(circle, rgba(34, 211, 238, 0.5) 0%, rgba(34, 211, 238, 0.2) 40%, transparent 70%)",
-            }}
-            animate={{
-              x: [0, -100, 60, 0],
-              y: [0, 70, -30, 0],
-              scale: [1.1, 0.85, 1.2, 1.1],
-            }}
-            transition={{
-              duration: 25,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          />
-          {/* Orb 3 - Deep slate/blue */}
-          <motion.div
-            className="absolute bottom-0 left-1/3 h-[550px] w-[550px] rounded-full opacity-40"
-            style={{
-              background: "radial-gradient(circle, rgba(30, 58, 138, 0.4) 0%, rgba(51, 65, 85, 0.2) 45%, transparent 70%)",
-            }}
-            animate={{
-              x: [0, 50, -80, 0],
-              y: [0, -90, 40, 0],
-              scale: [0.9, 1.15, 1, 0.9],
-            }}
-            transition={{
-              duration: 22,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          />
-          {/* Orb 4 - Teal accent */}
-          <motion.div
-            className="absolute right-1/4 -top-20 h-[400px] w-[400px] rounded-full opacity-45"
-            style={{
-              background: "radial-gradient(circle, rgba(20, 184, 166, 0.45) 0%, rgba(6, 182, 212, 0.2) 50%, transparent 70%)",
-            }}
-            animate={{
-              x: [0, -60, 90, 0],
-              y: [0, 50, -70, 0],
-              scale: [1.2, 0.95, 1.1, 1.2],
-            }}
-            transition={{
-              duration: 18,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          />
-        </div>
-
-        {/* Glass Aurora Overlay - diffuses colors smoothly */}
-        <div className="absolute inset-0 z-[1] backdrop-blur-[100px]" />
-
-        {/* Subtle dark tint for contrast */}
-        <div className="absolute inset-0 z-[2] bg-slate-950/30" />
-
-        {/* Content */}
-        <div className="relative z-20 flex min-h-screen flex-col items-center justify-center px-6 py-24 text-white">
-          <div className="mx-auto max-w-4xl text-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium backdrop-blur"
-            >
-              <Sparkles className="h-4 w-4" />
-              AI-Powered Dermatology
-            </motion.div>
-
-            <motion.h1
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="mb-6 text-5xl font-bold leading-tight tracking-tight md:text-7xl [text-shadow:0_2px_40px_rgba(0,0,0,0.5)]"
-            >
-              Personalized Skincare,
-              <span className="text-teal-300"> Powered by AI</span>
-            </motion.h1>
-
-            <motion.p
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="mb-10 text-lg text-white/90 md:text-xl"
-            >
-              Experience the future of dermatology with our cutting-edge AI skin
-              analysis. Get personalized treatment plans backed by medical expertise
-              and advanced technology.
-            </motion.p>
-
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-              className="flex flex-wrap items-center justify-center gap-4"
-            >
-              <Button
-                size="lg"
-                className="border-white/20 bg-white text-teal-700 shadow-lg hover:bg-white/90"
-              >
-                <Scan className="mr-2 h-5 w-5" />
-                Start Free Scan
-              </Button>
-              <button className="flex items-center gap-2 text-sm font-medium text-white/90 transition-colors hover:text-white">
-                <Play className="h-5 w-5" />
-                Watch Demo
-              </button>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              className="mt-12 flex flex-wrap items-center justify-center gap-8"
-            >
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-teal-300" />
-                <span className="text-sm text-white/80">10,000+ Patients</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Award className="h-5 w-5 text-teal-300" />
-                <span className="text-sm text-white/80">AI Board Certified</span>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* AI Skin Analysis Tutorial Section */}
-      <motion.section
-        className="py-20"
-        {...fadeInUp}
+      {/* Scroll-driven cinematic container */}
+      <div
+        ref={containerRef}
+        className="h-[500vh] w-full bg-zinc-950"
       >
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="mb-12 text-center">
-            <h2 className="mb-4 text-4xl font-bold tracking-tight text-slate-900">
-              How Our AI Scan Works
-            </h2>
-            <p className="mx-auto max-w-2xl text-lg text-slate-600">
-              Our advanced AI technology analyzes your skin in seconds, detecting
-              issues and providing personalized recommendations.
-            </p>
-          </div>
-
-          <div className="grid items-center gap-12 md:grid-cols-2">
-            <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white shadow-xl">
-              <div className="aspect-video">
-                <div className="flex h-full items-center justify-center bg-gradient-to-br from-teal-500/10 to-slate-100">
-                  <div className="text-center">
-                    <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-lg">
-                      <Play className="h-10 w-10 text-teal-600" />
-                    </div>
-                    <p className="text-sm font-semibold text-slate-700">
-                      AI Skin Analysis Tutorial
-                    </p>
-                    <p className="text-xs text-slate-500">Watch how it works (2:30)</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              <h3 className="text-3xl font-bold text-slate-900">
-                Get Your Skin Score in 60 Seconds
-              </h3>
-              <p className="text-slate-600">
-                Our AI analyzes multiple skin parameters to give you a comprehensive
-                understanding of your skin health:
-              </p>
-
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-50">
-                    <Target className="h-5 w-5 text-teal-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-slate-900">
-                      Acne & Blemishes Detection
-                    </h4>
-                    <p className="text-sm text-slate-600">
-                      Identify problem areas and track improvement over time
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-50">
-                    <Droplets className="h-5 w-5 text-teal-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-slate-900">
-                      Pigmentation Analysis
-                    </h4>
-                    <p className="text-sm text-slate-600">
-                      Map dark spots, sun damage, and uneven skin tone
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-50">
-                    <Wind className="h-5 w-5 text-teal-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-slate-900">
-                      Fine Lines & Wrinkles
-                    </h4>
-                    <p className="text-sm text-slate-600">
-                      Measure aging signs and recommend preventive care
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <Link
-                href="/dashboard/scan"
-                className="inline-flex w-full items-center justify-center rounded-full bg-teal-600 px-5 py-2.5 text-base font-medium text-white shadow-lg shadow-teal-600/20 transition-colors hover:bg-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 md:w-auto"
-              >
-                <Zap className="mr-2 h-5 w-5" />
-                Start Analysis Now
-              </Link>
-            </div>
-          </div>
-        </div>
-      </motion.section>
-
-      {/* Services Overview */}
-      <section className="bg-slate-50 py-20">
-        <div className="mx-auto max-w-7xl px-6">
+        <div className="sticky top-0 flex h-screen w-full items-center justify-center overflow-hidden">
+          {/* Scene 1: The Hero */}
           <motion.div
-            className="mb-12 text-center"
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
+            style={{ opacity: heroOpacity }}
+            className="absolute inset-0 flex flex-col items-center justify-center"
           >
-            <h2 className="mb-4 text-4xl font-bold tracking-tight text-slate-900">
-              Comprehensive Skin Treatments
-            </h2>
-            <p className="mx-auto max-w-2xl text-lg text-slate-600">
-              Evidence-based solutions for every skin concern, personalized to your
-              unique needs.
-            </p>
+            <motion.div
+              style={{
+                scale: phoneScale,
+                y: phoneY,
+              }}
+              className="relative z-10 flex flex-col items-center gap-8"
+            >
+              <h1 className="text-center text-5xl font-bold tracking-tight text-white md:text-7xl lg:text-8xl">
+                Clinical AI,
+                <br />
+                in your pocket.
+              </h1>
+              <div
+                className="relative w-72 rounded-[3rem] border-[8px] border-zinc-800 bg-zinc-900 shadow-[0_0_60px_rgba(20,184,166,0.25)]"
+                style={{ height: 600 }}
+              >
+                <div className="absolute left-1/2 top-0 h-6 w-32 -translate-x-1/2 rounded-b-2xl bg-zinc-900" />
+                <div className="flex h-full items-center justify-center p-6 pt-12">
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 h-20 w-20 rounded-2xl bg-teal-500/20" />
+                    <p className="text-sm text-zinc-500">SkinFit App</p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {serviceCards.map((card, index) => {
-              const Icon = card.icon;
-              return (
-                <motion.div
-                  key={card.title}
-                  initial={{ opacity: 0, y: 24 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                >
-                  <Link
-                    href={card.href}
-                    className="group relative block overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:shadow-xl hover:shadow-teal-600/10"
-                  >
-                    <div className="absolute right-4 top-4 opacity-0 transition-opacity group-hover:opacity-100">
-                      <ChevronRight className="h-5 w-5 text-teal-600" />
-                    </div>
-                    <div
-                      className={`mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${card.iconBg}`}
-                    >
-                      <Icon className={`h-7 w-7 ${card.iconColor}`} />
-                    </div>
-                    <h3 className="mb-2 text-xl font-bold text-slate-900">
-                      {card.title}
-                    </h3>
-                    <p className="text-sm text-slate-600">{card.description}</p>
-                  </Link>
-                </motion.div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials */}
-      <motion.section
-        className="py-20"
-        {...fadeInUp}
-      >
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="mb-12 text-center">
-            <h2 className="mb-4 text-4xl font-bold tracking-tight text-slate-900">
-              Real Results, Real Stories
+          {/* Scene 2: The 8-Engine AI Tech */}
+          <motion.div
+            style={{
+              opacity: techOpacity,
+              y: techY,
+            }}
+            className="absolute inset-0 flex flex-col items-center justify-center"
+          >
+            <h2 className="mb-12 text-center text-4xl font-bold tracking-tight text-white md:text-5xl">
+              Proprietary 8-Engine Analysis
             </h2>
-            <p className="mx-auto max-w-2xl text-lg text-slate-600">
-              See the transformations our patients have achieved with personalized AI
-              skin care.
-            </p>
-          </div>
 
-          <div className="grid gap-8 md:grid-cols-2">
-            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
-              <div className="grid grid-cols-2">
-                <div className="aspect-square bg-gradient-to-br from-slate-100 to-slate-200 p-4">
-                  <div className="flex h-full items-center justify-center">
-                    <div className="text-center">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Before
-                      </p>
-                      <div className="text-4xl text-slate-400">📸</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="aspect-square bg-gradient-to-br from-teal-50 to-teal-100 p-4">
-                  <div className="flex h-full items-center justify-center">
-                    <div className="text-center">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-teal-700">
-                        After
-                      </p>
-                      <div className="text-4xl text-teal-500">✨</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6">
-                <div className="mb-3 flex items-center gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className="h-4 w-4 fill-amber-400 text-amber-400"
-                    />
-                  ))}
-                </div>
-                <p className="mb-4 text-slate-700">
-                  &quot;The AI skin analysis was spot-on! Within 3 months of following Dr.
-                  Ruby Sachdev&apos;s treatment plan, my acne cleared up completely. I finally have
-                  the confidence I&apos;ve been looking for.&quot;
-                </p>
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-teal-400 to-teal-600" />
-                  <div>
-                    <p className="font-semibold text-slate-900">Priya Sharma</p>
-                    <p className="text-sm text-slate-500">Acne Treatment Patient</p>
-                  </div>
-                </div>
+            {/* Abstract facial scanning geometry */}
+            <div className="relative mb-16">
+              <div className="relative h-64 w-64 md:h-80 md:w-80">
+                {/* Bounding box */}
+                <div className="absolute inset-0 rounded-3xl border-2 border-teal-500/50 shadow-[0_0_40px_rgba(20,184,166,0.15)]" />
+                {/* Polygon overlays - face mesh simulation */}
+                <svg
+                  className="absolute inset-0 h-full w-full"
+                  viewBox="0 0 256 256"
+                  fill="none"
+                >
+                  <polygon
+                    points="128,40 180,90 180,166 128,210 76,166 76,90"
+                    stroke="rgba(20,184,166,0.4)"
+                    strokeWidth="1.5"
+                    fill="transparent"
+                  />
+                  <polygon
+                    points="100,100 156,100 140,140 116,140"
+                    stroke="rgba(20,184,166,0.5)"
+                    strokeWidth="1"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="110"
+                    cy="90"
+                    r="8"
+                    stroke="rgba(20,184,166,0.6)"
+                    strokeWidth="1"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="146"
+                    cy="90"
+                    r="8"
+                    stroke="rgba(20,184,166,0.6)"
+                    strokeWidth="1"
+                    fill="transparent"
+                  />
+                </svg>
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
-              <div className="grid grid-cols-2">
-                <div className="aspect-square bg-gradient-to-br from-slate-100 to-slate-200 p-4">
-                  <div className="flex h-full items-center justify-center">
-                    <div className="text-center">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Before
-                      </p>
-                      <div className="text-4xl text-slate-400">📸</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="aspect-square bg-gradient-to-br from-teal-50 to-teal-100 p-4">
-                  <div className="flex h-full items-center justify-center">
-                    <div className="text-center">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-teal-700">
-                        After
-                      </p>
-                      <div className="text-4xl text-teal-500">✨</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6">
-                <div className="mb-3 flex items-center gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className="h-4 w-4 fill-amber-400 text-amber-400"
-                    />
-                  ))}
-                </div>
-                <p className="mb-4 text-slate-700">
-                  &quot;I was skeptical about AI diagnosis, but the detailed analysis helped
-                  Dr. Ruby Sachdev create a perfect anti-aging plan for me. My skin looks 10
-                  years younger!&quot;
-                </p>
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-purple-400 to-purple-600" />
-                  <div>
-                    <p className="font-semibold text-slate-900">Anjali Mehta</p>
-                    <p className="text-sm text-slate-500">
-                      Anti-Aging Treatment Patient
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.section>
-
-      {/* Doctor's Profile - Dr. Ruby Sachdev */}
-      <motion.section
-        className="bg-gradient-to-br from-teal-600 to-teal-700 py-20 text-white"
-        {...fadeInUp}
-      >
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid items-center gap-12 md:grid-cols-[1fr_2fr]">
-            <div className="relative">
-              <div className="absolute -inset-4 rounded-3xl bg-white/20 blur-2xl" />
-              <div className="relative aspect-[3/4] overflow-hidden rounded-3xl border-4 border-white/20 bg-gradient-to-br from-white/10 to-white/5 shadow-2xl">
-                <div className="flex h-full items-center justify-center">
-                  <div className="text-center">
-                    <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-white/20 backdrop-blur">
-                      <Award className="h-12 w-12 text-white" />
-                    </div>
-                    <p className="text-sm font-medium text-white/90">
-                      Dr. Ruby Sachdev&apos;s Photo
-                    </p>
-                    <p className="text-xs text-white/70">Professional Headshot</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              <div>
-                <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-teal-200">
-                  Meet Your Dermatologist
-                </p>
-                <h2 className="mb-4 text-4xl font-bold">Dr. Ruby Sachdev</h2>
-                <p className="text-lg text-teal-50">
-                  MD, Board Certified Dermatologist • AI Skincare Pioneer
-                </p>
-              </div>
-
-              <div className="space-y-4 text-white/90">
-                <p className="text-lg leading-relaxed">
-                  With over 15 years of clinical experience and a passion for
-                  technology, Dr. Ruby Sachdev combines traditional dermatology with
-                  cutting-edge AI diagnostics to deliver exceptional results.
-                </p>
-                <p className="leading-relaxed">
-                  She completed her medical training at AIIMS Delhi and specialized in
-                  aesthetic dermatology at Harvard Medical School. Dr. Ruby Sachdev has treated
-                  over 10,000 patients and pioneered several AI-assisted treatment
-                  protocols now used across India.
-                </p>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-xl bg-white/10 p-4 backdrop-blur">
-                  <p className="text-3xl font-bold">15+</p>
-                  <p className="text-sm text-teal-100">Years Experience</p>
-                </div>
-                <div className="rounded-xl bg-white/10 p-4 backdrop-blur">
-                  <p className="text-3xl font-bold">10K+</p>
-                  <p className="text-sm text-teal-100">Happy Patients</p>
-                </div>
-                <div className="rounded-xl bg-white/10 p-4 backdrop-blur">
-                  <p className="text-3xl font-bold">50+</p>
-                  <p className="text-sm text-teal-100">Awards & Papers</p>
-                </div>
-              </div>
-
-              <Button
-                size="lg"
-                variant="secondary"
-                className="border-white/20 bg-white text-teal-700 hover:bg-white/90"
+            {/* Staggered AI engine cards */}
+            <div className="flex flex-wrap items-center justify-center gap-6 px-6">
+              <motion.div
+                style={{ opacity: acneCardOpacity }}
+                className="w-48 rounded-2xl border border-zinc-700 bg-zinc-900/90 p-6 shadow-[0_0_30px_rgba(20,184,166,0.1)] backdrop-blur-sm"
               >
-                Book Consultation
-              </Button>
+                <div className="mb-3 h-10 w-10 rounded-lg bg-teal-500/20" />
+                <h3 className="mb-1 font-semibold text-white">Acne</h3>
+                <p className="text-sm text-zinc-400">Blemish detection</p>
+              </motion.div>
+              <motion.div
+                style={{ opacity: wrinklesCardOpacity }}
+                className="w-48 rounded-2xl border border-zinc-700 bg-zinc-900/90 p-6 shadow-[0_0_30px_rgba(20,184,166,0.1)] backdrop-blur-sm"
+              >
+                <div className="mb-3 h-10 w-10 rounded-lg bg-teal-500/20" />
+                <h3 className="mb-1 font-semibold text-white">Wrinkles</h3>
+                <p className="text-sm text-zinc-400">Aging analysis</p>
+              </motion.div>
+              <motion.div
+                style={{ opacity: pigmentationCardOpacity }}
+                className="w-48 rounded-2xl border border-zinc-700 bg-zinc-900/90 p-6 shadow-[0_0_30px_rgba(20,184,166,0.1)] backdrop-blur-sm"
+              >
+                <div className="mb-3 h-10 w-10 rounded-lg bg-teal-500/20" />
+                <h3 className="mb-1 font-semibold text-white">Pigmentation</h3>
+                <p className="text-sm text-zinc-400">Tone mapping</p>
+              </motion.div>
             </div>
-          </div>
-        </div>
-      </motion.section>
+          </motion.div>
 
-      {/* Global Footer */}
-      <motion.footer
-        className="border-t border-slate-200 bg-slate-900 py-12 text-white"
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-      >
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-12 md:grid-cols-4">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-teal-600 shadow-lg">
-                  <Sparkles className="h-5 w-5" />
+          {/* Scene 3: The B2B2C Ecosystem */}
+          <motion.div
+            style={{ opacity: ecoOpacity }}
+            className="absolute inset-0 flex items-center justify-center"
+          >
+            <div className="flex w-full max-w-6xl items-center justify-between gap-12 px-8">
+              {/* For Patients - Mobile */}
+              <motion.div
+                style={{ x: patientSideX }}
+                className="flex flex-1 flex-col items-center"
+              >
+                <h3 className="mb-6 text-2xl font-bold tracking-tight text-white md:text-3xl">
+                  For Patients
+                </h3>
+                <div
+                  className="relative w-44 rounded-[2rem] border-[6px] border-zinc-800 bg-zinc-900 shadow-[0_0_50px_rgba(20,184,166,0.2)]"
+                  style={{ height: 480 }}
+                >
+                  <div className="absolute left-1/2 top-0 h-5 w-24 -translate-x-1/2 rounded-b-xl bg-zinc-900" />
+                  <div className="flex h-full items-center justify-center p-4 pt-8">
+                    <div className="text-center">
+                      <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-teal-500/20" />
+                      <p className="text-xs text-zinc-500">SkinFit App</p>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-xl font-bold">SkinFit</span>
+              </motion.div>
+
+              {/* Center divider */}
+              <div className="hidden h-px flex-1 bg-gradient-to-r from-transparent via-teal-500/30 to-transparent md:block" />
+
+              {/* For Providers - iPad */}
+              <motion.div
+                style={{ x: clinicSideX }}
+                className="flex flex-1 flex-col items-center"
+              >
+                <h3 className="mb-6 text-2xl font-bold tracking-tight text-white md:text-3xl">
+                  For Providers
+                </h3>
+                <div
+                  className="w-64 rounded-2xl border-[6px] border-zinc-800 bg-zinc-900 shadow-[0_0_50px_rgba(20,184,166,0.2)]"
+                  style={{ height: 360 }}
+                >
+                  <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
+                    <div className="grid grid-cols-2 gap-2">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div
+                          key={i}
+                          className="h-16 w-16 rounded-lg border border-zinc-700 bg-zinc-800/50"
+                        />
+                      ))}
+                    </div>
+                    <p className="text-xs text-zinc-500">Clinic Command Center</p>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
+
+          {/* Scene 4: The Final CTA */}
+          <motion.div
+            style={{
+              opacity: ctaOpacity,
+              scale: ctaScale,
+            }}
+            className="absolute inset-0 flex items-center justify-center"
+          >
+            <div className="mx-auto max-w-2xl px-6 text-center">
+              <div className="rounded-3xl border border-zinc-700 bg-zinc-900/80 p-12 shadow-[0_0_80px_rgba(20,184,166,0.15)] backdrop-blur-md md:p-16">
+                <h2 className="mb-6 text-4xl font-bold tracking-tight text-white md:text-5xl lg:text-6xl">
+                  Transform Your Clinic Today.
+                </h2>
+                <p className="mb-8 text-lg text-zinc-400">
+                  Join the future of AI-powered dermatology
+                </p>
+                <Link
+                  href="/contact"
+                  className="inline-flex items-center justify-center rounded-full bg-teal-600 px-8 py-4 text-lg font-semibold text-white shadow-[0_0_40px_rgba(20,184,166,0.4)] transition-all hover:bg-teal-500 hover:shadow-[0_0_60px_rgba(20,184,166,0.5)]"
+                >
+                  Book Inauguration Demo
+                </Link>
               </div>
-              <p className="text-sm text-slate-400">
-                Advanced AI-powered dermatology clinic offering personalized skincare
-                solutions.
-              </p>
             </div>
+          </motion.div>
+        </div>
+      </div>
 
-            <div>
-              <h4 className="mb-4 font-semibold">Quick Links</h4>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li>
-                  <Link href="/services" className="hover:text-teal-400">
-                    Services
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/blog" className="hover:text-teal-400">
-                    Blog
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/about" className="hover:text-teal-400">
-                    About Us
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/contact" className="hover:text-teal-400">
-                    Contact
-                  </Link>
-                </li>
-              </ul>
+      {/* Minimal Footer */}
+      <footer className="border-t border-zinc-800 bg-zinc-950 py-12">
+        <div className="mx-auto max-w-7xl px-6 text-center">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-teal-600">
+              <Sparkles className="h-4 w-4 text-white" />
             </div>
-
-            <div>
-              <h4 className="mb-4 font-semibold">Treatments</h4>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li>Acne Treatment</li>
-                <li>Pigmentation</li>
-                <li>Anti-Aging</li>
-                <li>Hair Loss</li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="mb-4 font-semibold">Contact Us</h4>
-              <ul className="space-y-3 text-sm text-slate-400">
-                <li className="flex items-start gap-2">
-                  <Phone className="h-4 w-4 shrink-0 text-teal-400" />
-                  <span>+91 98765 43210</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Mail className="h-4 w-4 shrink-0 text-teal-400" />
-                  <span>hello@skinfit.clinic</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <MapPin className="h-4 w-4 shrink-0 text-teal-400" />
-                  <span>123 Medical Plaza, Bangalore, Karnataka 560001</span>
-                </li>
-              </ul>
-            </div>
+            <span className="text-lg font-bold tracking-tight">SkinFit</span>
           </div>
-
-          <div className="mt-12 border-t border-slate-800 pt-8 text-center text-sm text-slate-500">
-            <p>
-              © {new Date().getFullYear()} SkinFit Clinic. All rights reserved. |
-              Privacy Policy | Terms of Service
-            </p>
+          <p className="text-sm text-zinc-500">
+            © {new Date().getFullYear()} SkinFit Clinic. All rights reserved.
+          </p>
+          <div className="mt-4 flex justify-center gap-6 text-sm">
+            <Link href="/services" className="text-zinc-400 hover:text-teal-400">
+              Services
+            </Link>
+            <Link href="/contact" className="text-zinc-400 hover:text-teal-400">
+              Contact
+            </Link>
           </div>
         </div>
-      </motion.footer>
+      </footer>
     </div>
   );
 }

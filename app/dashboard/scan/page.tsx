@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Camera, Sparkles, RotateCcw, Check } from "lucide-react";
+import { SkinScanReportModal } from "../../../components/dashboard/SkinScanReportModal";
 
 type ScanStep = "upload" | "confirm" | "naming" | "scanning" | "results";
 
@@ -24,42 +25,9 @@ interface ScanResults {
   metrics: ScanMetrics;
   detected_regions: DetectedRegion[];
   ai_summary?: string;
+  userName?: string;
+  scanDate?: string;
 }
-
-function RegionDot({ region, index }: { region: DetectedRegion; index: number }) {
-  const [showTooltip, setShowTooltip] = useState(false);
-  return (
-    <motion.div
-      initial={{ scale: 0 }}
-      animate={{ scale: 1 }}
-      transition={{ delay: 0.2 + index * 0.05 }}
-      className="absolute z-10 -translate-x-1/2 -translate-y-1/2"
-      style={{
-        left: `${region.coordinates.x}%`,
-        top: `${region.coordinates.y}%`,
-      }}
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
-      onClick={() => setShowTooltip((s) => !s)}
-    >
-      <div className="relative flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-teal-400/90 shadow-[0_0_12px_rgba(45,212,191,0.8)] ring-2 ring-teal-400/50" />
-      {showTooltip && (
-        <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white shadow-xl">
-          {region.issue}
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-const METRIC_LABELS: Record<keyof ScanMetrics, string> = {
-  acne: "Acne",
-  pigmentation: "Pigmentation",
-  wrinkles: "Wrinkles",
-  hydration: "Hydration",
-  texture: "Texture",
-  overall_score: "Overall Score",
-};
 
 export default function ScanPage() {
   const [step, setStep] = useState<ScanStep>("upload");
@@ -67,7 +35,12 @@ export default function ScanPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [scanName, setScanName] = useState("");
   const [scanResults, setScanResults] = useState<ScanResults | null>(null);
+  const [reportOpen, setReportOpen] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    if (scanResults) setReportOpen(true);
+  }, [scanResults]);
 
   const resetScan = useCallback(() => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -304,74 +277,58 @@ export default function ScanPage() {
         </motion.div>
       )}
 
-      {/* Step: Results */}
+      {/* Step: Results — full report modal */}
       {step === "results" && scanResults && previewUrl && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5 }}
-          className="space-y-6"
-        >
-          <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/50">
-            <div className="relative aspect-[3/4] max-h-[400px] w-full">
-              <img
-                src={previewUrl}
-                alt="Scanned face"
-                className="h-full w-full object-cover"
-              />
-              {scanResults.detected_regions.map((region, i) => (
-                <RegionDot key={i} region={region} index={i} />
-              ))}
-            </div>
-          </div>
-
-          {scanResults.ai_summary && (
+        <>
+          <SkinScanReportModal
+            open={reportOpen}
+            onClose={() => setReportOpen(false)}
+            userName={scanResults.userName?.trim() || "there"}
+            imageUrl={previewUrl}
+            regions={scanResults.detected_regions}
+            metrics={{
+              acne: scanResults.metrics.acne,
+              hydration: scanResults.metrics.hydration,
+              wrinkles: scanResults.metrics.wrinkles,
+              overall_score: scanResults.metrics.overall_score,
+            }}
+            aiSummary={scanResults.ai_summary}
+            scanDate={
+              scanResults.scanDate
+                ? new Date(scanResults.scanDate)
+                : new Date()
+            }
+          />
+          {!reportOpen && (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="rounded-2xl border border-teal-400/30 bg-teal-400/10 px-6 py-4"
+              className="rounded-[22px] border border-zinc-200 bg-white p-8 text-center shadow-sm"
             >
-              <p className="text-center text-sm leading-relaxed text-zinc-200">
-                {scanResults.ai_summary}
+              <p className="text-sm font-medium text-zinc-700">
+                Report saved to your history. Start another scan whenever you
+                like.
               </p>
+              <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+                <button
+                  type="button"
+                  onClick={() => setReportOpen(true)}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 sm:w-auto"
+                >
+                  View report again
+                </button>
+                <button
+                  type="button"
+                  onClick={resetScan}
+                  className="w-full rounded-xl px-6 py-3 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
+                  style={{ backgroundColor: "#6D8C8E" }}
+                >
+                  Scan another photo
+                </button>
+              </div>
             </motion.div>
           )}
-
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-            {(Object.keys(METRIC_LABELS) as (keyof ScanMetrics)[]).map(
-              (key) => (
-                <motion.div
-                  key={key}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4"
-                >
-                  <p className="text-xs font-medium text-zinc-500">
-                    {METRIC_LABELS[key]}
-                  </p>
-                  <p
-                    className={`mt-1 text-2xl font-bold ${
-                      key === "overall_score" ? "text-teal-400" : "text-white"
-                    }`}
-                  >
-                    {scanResults.metrics[key]}
-                    {key === "overall_score" ? "/100" : ""}
-                  </p>
-                </motion.div>
-              )
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={resetScan}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-800/50 py-3 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
-          >
-            Scan Another Photo
-          </button>
-        </motion.div>
+        </>
       )}
     </div>
   );

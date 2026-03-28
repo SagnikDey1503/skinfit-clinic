@@ -8,7 +8,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div className="min-h-screen bg-[#FDF9F0]">
       {/* Premium Top Navbar */}
       <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
@@ -80,7 +80,9 @@ export default function DashboardLayout({
       </nav>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-4xl p-6 pb-12">{children}</main>
+      <main className="mx-auto max-w-lg px-4 py-6 pb-12 sm:max-w-xl md:max-w-2xl">
+        {children}
+      </main>
     </div>
   );
 }
