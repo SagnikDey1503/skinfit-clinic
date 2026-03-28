@@ -10,6 +10,7 @@ import {
   boolean,
   date,
   pgEnum,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -79,19 +80,38 @@ export const skinScans = pgTable("skin_scans", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Daily logs (for dashboard)
-export const dailyLogs = pgTable("daily_logs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  date: date("date", { mode: "date" }).notNull(),
-  amRoutine: boolean("am_routine").notNull().default(false),
-  pmRoutine: boolean("pm_routine").notNull().default(false),
-  mood: varchar("mood", { length: 100 }).notNull(),
-  journalEntry: text("journal_entry"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+// Daily logs (for dashboard) — one row per user per calendar day; re-saves update that row.
+export const dailyLogs = pgTable(
+  "daily_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date", { mode: "date" }).notNull(),
+    amRoutine: boolean("am_routine").notNull().default(false),
+    pmRoutine: boolean("pm_routine").notNull().default(false),
+    mood: varchar("mood", { length: 100 }).notNull(),
+    /** Per-step completion for AM_ROUTINE_ITEMS (same order). */
+    routineAmSteps: jsonb("routine_am_steps").$type<boolean[]>(),
+    /** Per-step completion for PM_ROUTINE_ITEMS (same order). */
+    routinePmSteps: jsonb("routine_pm_steps").$type<boolean[]>(),
+    /** Hours of sleep (whole hours). */
+    sleepHours: integer("sleep_hours").notNull().default(0),
+    /** Self-reported stress 1–10. */
+    stressLevel: integer("stress_level").notNull().default(5),
+    /** Water intake in glasses. */
+    waterGlasses: integer("water_glasses").notNull().default(0),
+    journalEntry: text("journal_entry"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userDateIdx: uniqueIndex("daily_logs_user_id_date_uidx").on(
+      table.userId,
+      table.date
+    ),
+  })
+);
 
 // Appointments
 export const appointments = pgTable("appointments", {
