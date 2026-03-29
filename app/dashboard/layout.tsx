@@ -1,6 +1,8 @@
 import React from "react";
 import Link from "next/link";
-import { Sparkles, User, LogOut } from "lucide-react";
+import { Sparkles, User } from "lucide-react";
+import { DashboardNav } from "./dashboard-nav";
+import { LogoutButton } from "./logout-button";
 
 export default function DashboardLayout({
   children,
@@ -21,44 +23,7 @@ export default function DashboardLayout({
             </span>
           </Link>
 
-          <div className="hidden items-center gap-1 md:flex">
-            <Link
-              href="/dashboard"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-teal-600 bg-teal-50"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/dashboard/history"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-600"
-            >
-              Treatment History
-            </Link>
-            <Link
-              href="/dashboard/scan"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-600"
-            >
-              AI Scan
-            </Link>
-            <Link
-              href="/dashboard/schedules"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-600"
-            >
-              Schedules
-            </Link>
-            <Link
-              href="/dashboard/wellness"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-600"
-            >
-              Overall Wellness
-            </Link>
-            <Link
-              href="/dashboard/chat"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-teal-600"
-            >
-              Chat With Us
-            </Link>
-          </div>
+          <DashboardNav />
 
           <div className="flex items-center gap-2">
             <Link
@@ -68,13 +33,7 @@ export default function DashboardLayout({
             >
               <User className="h-4 w-4" />
             </Link>
-            <Link
-              href="/login"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 hover:text-teal-600"
-              title="Logout"
-            >
-              <LogOut className="h-4 w-4" />
-            </Link>
+            <LogoutButton />
           </div>
         </div>
       </nav>

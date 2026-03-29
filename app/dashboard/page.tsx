@@ -1,25 +1,25 @@
 import React from "react";
+import { redirect } from "next/navigation";
 import { db } from "../../src/db";
-import { scans, skinScans, dailyLogs } from "../../src/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { scans, skinScans, dailyLogs, users } from "../../src/db/schema";
+import { and, desc, eq } from "drizzle-orm";
 import { DashboardView } from "../../components/dashboard/DashboardView";
+import { getSessionUserId } from "../../src/lib/auth/get-session";
+import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "../../src/lib/routine";
+import { dateOnlyFromYmd, localCalendarYmd } from "../../src/lib/date-only";
 
 export default async function DashboardPage() {
-  const user = await db.query.users.findFirst();
+  const userId = await getSessionUserId();
+  if (!userId) {
+    redirect("/login");
+  }
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
 
   if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center space-y-4 p-10 text-zinc-800">
-        <div className="text-xl font-bold text-red-600">Test User Not Found</div>
-        <p className="text-zinc-600">
-          Please run{" "}
-          <code className="rounded bg-zinc-200 px-1 py-0.5 text-[#6B8E8E]">
-            npm run db:seed
-          </code>{" "}
-          in your terminal to create the test data.
-        </p>
-      </div>
-    );
+    redirect("/login");
   }
 
   const latestDbScan = await db.query.scans.findFirst({
@@ -43,9 +43,12 @@ export default async function DashboardPage() {
     orderBy: [desc(skinScans.createdAt)],
   });
 
+  const todayDateOnly = dateOnlyFromYmd(localCalendarYmd());
   const todayLog = await db.query.dailyLogs.findFirst({
-    where: eq(dailyLogs.userId, user.id),
-    orderBy: [desc(dailyLogs.date)],
+    where: and(
+      eq(dailyLogs.userId, user.id),
+      eq(dailyLogs.date, todayDateOnly)
+    ),
   });
 
   const scanMetrics = latestDbScan
@@ -112,23 +115,8 @@ export default async function DashboardPage() {
         }
       : null;
 
-  const amItems = [
-    "Gentle Cleanser",
-    "Toner",
-    "Serum",
-    "Moisturiser",
-    "Spf",
-  ];
-  const pmItems = [
-    "Oil Cleanser",
-    "Toner",
-    "Retinol",
-    "Serum",
-    "Night Cream",
-  ];
-
-  const amChecked = todayLog?.amRoutine ?? false;
-  const pmChecked = todayLog?.pmRoutine ?? false;
+  const amItems = [...AM_ROUTINE_ITEMS];
+  const pmItems = [...PM_ROUTINE_ITEMS];
 
   const routineScore = 80;
   const weeklyChangePercent = 5;
@@ -140,8 +128,6 @@ export default async function DashboardPage() {
       params={params}
       amItems={amItems}
       pmItems={pmItems}
-      amChecked={amChecked}
-      pmChecked={pmChecked}
       routineScore={routineScore}
       weeklyChangePercent={weeklyChangePercent}
       doctorFeedback=""

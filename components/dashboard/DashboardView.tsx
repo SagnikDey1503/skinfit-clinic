@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
+import { useRouter } from "next/navigation";
 import { Sun, Moon, SunMoon, ChevronsUp } from "lucide-react";
+import { normalizeRoutineSteps } from "@/src/lib/routine";
 import { DashboardJournal } from "./DashboardJournal";
 
 const PINK = "#F8A5B2";
@@ -15,14 +17,24 @@ interface SkinParam {
   value: number;
 }
 
+export type TodayJournalLog = {
+  journalEntry?: string | null;
+  sleepHours?: number;
+  stressLevel?: number;
+  waterGlasses?: number;
+  mood?: string | null;
+  amRoutine?: boolean;
+  pmRoutine?: boolean;
+  routineAmSteps?: boolean[] | null;
+  routinePmSteps?: boolean[] | null;
+} | null;
+
 interface DashboardViewProps {
   latestScan: { skinScore: number; createdAt: Date; analysisResults?: unknown } | null;
-  todayLog: { journalEntry?: string | null } | null;
+  todayLog: TodayJournalLog;
   params: SkinParam[];
   amItems: string[];
   pmItems: string[];
-  amChecked: boolean;
-  pmChecked: boolean;
   routineScore?: number;
   weeklyChangePercent?: number;
   doctorFeedback?: string | null;
@@ -125,39 +137,85 @@ export function DashboardView({
   params,
   amItems,
   pmItems,
-  amChecked,
-  pmChecked,
   routineScore = 80,
   weeklyChangePercent = 5,
   doctorFeedback = "",
 }: DashboardViewProps) {
+  const router = useRouter();
   const displayDate = format(new Date(), "dd/MM/yy");
 
   const skinPercent = latestScan
     ? Math.min(100, Math.max(0, Math.round(latestScan.skinScore)))
     : 40;
 
-  const [amDone, setAmDone] = useState(() =>
-    amItems.map(() => amChecked)
-  );
-  const [pmDone, setPmDone] = useState(() =>
-    pmItems.map(() => pmChecked)
+  const [routine, setRoutine] = useState(() => ({
+    am: normalizeRoutineSteps(
+      todayLog?.routineAmSteps,
+      amItems.length,
+      undefined
+    ),
+    pm: normalizeRoutineSteps(
+      todayLog?.routinePmSteps,
+      pmItems.length,
+      undefined
+    ),
+  }));
+
+  useEffect(() => {
+    setRoutine({
+      am: normalizeRoutineSteps(
+        todayLog?.routineAmSteps,
+        amItems.length,
+        undefined
+      ),
+      pm: normalizeRoutineSteps(
+        todayLog?.routinePmSteps,
+        pmItems.length,
+        undefined
+      ),
+    });
+  }, [todayLog, amItems.length, pmItems.length]);
+
+  const persistRoutine = useCallback(
+    async (nextAm: boolean[], nextPm: boolean[]) => {
+      try {
+        const res = await fetch("/api/journal", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            date: format(new Date(), "yyyy-MM-dd"),
+            routineAmSteps: nextAm,
+            routinePmSteps: nextPm,
+          }),
+        });
+        if (!res.ok) router.refresh();
+      } catch {
+        router.refresh();
+      }
+    },
+    [router]
   );
 
   const toggleAm = (i: number) => {
-    setAmDone((prev) => {
-      const next = [...prev];
-      next[i] = !next[i];
+    setRoutine((r) => {
+      const nextAm = r.am.map((v, j) => (j === i ? !v : v));
+      const next = { am: nextAm, pm: r.pm };
+      void persistRoutine(next.am, next.pm);
       return next;
     });
   };
+
   const togglePm = (i: number) => {
-    setPmDone((prev) => {
-      const next = [...prev];
-      next[i] = !next[i];
+    setRoutine((r) => {
+      const nextPm = r.pm.map((v, j) => (j === i ? !v : v));
+      const next = { am: r.am, pm: nextPm };
+      void persistRoutine(next.am, next.pm);
       return next;
     });
   };
+
+  const amDone = routine.am;
+  const pmDone = routine.pm;
 
   const gridParams = useMemo(() => {
     const labels = ["Acne", "Wrinkle", "Pores", "Pigmentation", "Hydration", "Eczema"];
@@ -295,7 +353,7 @@ export function DashboardView({
       <section>
         <h2 className="mb-3 text-lg font-bold text-zinc-900">Daily Journal</h2>
         <div className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6">
-          <DashboardJournal initialEntry={todayLog?.journalEntry ?? undefined} />
+          <DashboardJournal todayLog={todayLog} />
         </div>
       </section>
 

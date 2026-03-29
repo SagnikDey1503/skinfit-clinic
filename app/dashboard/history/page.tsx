@@ -1,11 +1,20 @@
 import React from "react";
+import { redirect } from "next/navigation";
 import { db } from "../../../src/db";
 import { scans, users } from "../../../src/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { HistoryView } from "../../../components/dashboard/HistoryView";
+import { getSessionUserId } from "../../../src/lib/auth/get-session";
 
 export default async function HistoryPage() {
-  const user = await db.query.users.findFirst();
+  const userId = await getSessionUserId();
+  if (!userId) redirect("/login");
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+  if (!user) redirect("/login");
+
   const scansList = user
     ? await db.query.scans.findMany({
         where: eq(scans.userId, user.id),
