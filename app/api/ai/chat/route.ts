@@ -15,6 +15,54 @@ import OpenAI from "openai";
 
 type AssistantId = "ai" | "doctor" | "support";
 
+type ChatScan = {
+  id: number;
+  createdAt: Date;
+  scanName: string | null;
+  userId: string;
+  overallScore: number;
+  acne: number;
+  pigmentation: number;
+  wrinkles: number;
+  hydration: number;
+  texture: number;
+  aiSummary: string | null;
+};
+
+type ChatVisitNote = {
+  id: string;
+  userId: string;
+  visitDate: Date;
+  doctorName: string;
+  notes: string;
+};
+
+type ChatScheduleEvent = {
+  id: string;
+  userId: string;
+  eventDate: Date;
+  eventTimeHm: string | null;
+  title: string;
+};
+
+type ChatAppointment = {
+  id: string;
+  userId: string;
+  doctorId: string;
+  dateTime: Date;
+  status: string;
+  type: string;
+};
+
+type ChatReminder = {
+  id: string;
+  userId: string;
+  title: string;
+  priority: string;
+  completed: boolean;
+  sortOrder: number;
+};
+
 function truncate(s: string, max: number): string {
   const str = s ?? "";
   if (str.length <= max) return str;
@@ -29,12 +77,12 @@ function addDaysUTCNoon(date: Date, days: number): Date {
 
 function buildPatientContext(params: {
   userName: string;
-  latestScan: (typeof scans.$inferSelect) | undefined;
-  recentScans: Array<typeof scans.$inferSelect>;
-  recentVisitNotes: Array<typeof visitNotes.$inferSelect>;
-  upcomingEvents: Array<typeof scheduleEvents.$inferSelect>;
-  nextAppointment: (typeof appointments.$inferSelect) | undefined;
-  reminders: Array<typeof priorityReminders.$inferSelect>;
+  latestScan: ChatScan | undefined;
+  recentScans: Array<ChatScan>;
+  recentVisitNotes: Array<ChatVisitNote>;
+  upcomingEvents: Array<ChatScheduleEvent>;
+  nextAppointment: ChatAppointment | undefined;
+  reminders: Array<ChatReminder>;
 }) {
   const {
     userName,
