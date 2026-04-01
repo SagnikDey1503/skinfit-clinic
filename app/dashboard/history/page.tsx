@@ -6,6 +6,7 @@ import { desc, eq } from "drizzle-orm";
 import { HistoryView } from "../../../components/dashboard/HistoryView";
 import { getSessionUserId } from "../../../src/lib/auth/get-session";
 import { ymdFromDateOnly } from "../../../src/lib/date-only";
+import { displayUserPhone } from "../../../src/lib/auth/phone";
 
 export default async function HistoryPage() {
   const userId = await getSessionUserId();
@@ -17,6 +18,7 @@ export default async function HistoryPage() {
       id: true,
       name: true,
       email: true,
+      phoneCountryCode: true,
       phone: true,
       age: true,
       skinType: true,
@@ -28,7 +30,7 @@ export default async function HistoryPage() {
   const patient = {
     name: user.name,
     email: user.email,
-    phone: user.phone,
+    phone: displayUserPhone(user.phoneCountryCode, user.phone),
     age: user.age,
     skinType: user.skinType,
     primaryGoal: user.primaryGoal,

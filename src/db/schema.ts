@@ -40,7 +40,11 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull().unique(),
-  /** Set at signup (required); nullable for legacy rows before this column existed. */
+  /** E.164-style country calling code, e.g. +91 */
+  phoneCountryCode: varchar("phone_country_code", { length: 8 })
+    .notNull()
+    .default("+91"),
+  /** National / local number digits (no country code). */
   phone: varchar("phone", { length: 32 }),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   role: userRoleEnum("role").notNull().default("patient"),

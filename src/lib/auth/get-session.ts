@@ -23,6 +23,9 @@ export type SessionUserProfile = {
   id: string;
   name: string;
   email: string;
+  /** E.g. +91 */
+  phoneCountryCode: string;
+  /** National digits only (no country code). */
   phone: string | null;
   age: number | null;
   skinType: string | null;
@@ -37,6 +40,7 @@ export async function getSessionUserProfile(): Promise<SessionUserProfile | null
       id: users.id,
       name: users.name,
       email: users.email,
+      phoneCountryCode: users.phoneCountryCode,
       phone: users.phone,
       age: users.age,
       skinType: users.skinType,

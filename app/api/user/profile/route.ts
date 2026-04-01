@@ -8,7 +8,10 @@ import { SESSION_COOKIE_NAME } from "@/src/lib/auth/constants";
 import { getSessionUserId } from "@/src/lib/auth/get-session";
 import { getSessionSecret } from "@/src/lib/auth/session-secret";
 import { createSessionToken } from "@/src/lib/auth/session";
-import { validateRegistrationPhone } from "@/src/lib/auth/phone";
+import {
+  normalizeCountryCode,
+  validateNationalPhone,
+} from "@/src/lib/auth/phone";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -40,6 +43,7 @@ export async function PATCH(req: Request) {
 
   let nextName = user.name;
   let nextEmail = user.email;
+  let nextPhoneCountry = user.phoneCountryCode ?? "+91";
   let nextPhone: string | null = user.phone;
   let nextAge: number | null = user.age;
   let nextSkin: string | null = user.skinType;
@@ -81,6 +85,16 @@ export async function PATCH(req: Request) {
     nextEmail = normalized;
   }
 
+  if ("phoneCountryCode" in body) {
+    if (typeof body.phoneCountryCode !== "string") {
+      return NextResponse.json(
+        { message: "Invalid country code." },
+        { status: 400 }
+      );
+    }
+    nextPhoneCountry = normalizeCountryCode(body.phoneCountryCode);
+  }
+
   if ("phone" in body) {
     if (typeof body.phone !== "string") {
       return NextResponse.json(
@@ -88,11 +102,11 @@ export async function PATCH(req: Request) {
         { status: 400 }
       );
     }
-    const phoneCheck = validateRegistrationPhone(body.phone);
+    const phoneCheck = validateNationalPhone(body.phone);
     if (!phoneCheck.ok) {
       return NextResponse.json({ message: phoneCheck.message }, { status: 400 });
     }
-    nextPhone = phoneCheck.value;
+    nextPhone = phoneCheck.nationalDigits;
   }
 
   if ("age" in body) {
@@ -179,6 +193,8 @@ export async function PATCH(req: Request) {
     .set({
       name: nextName,
       email: nextEmail,
+      phoneCountryCode: nextPhoneCountry,
+      phone: nextPhone,
       age: nextAge,
       skinType: nextSkin,
       primaryGoal: nextGoal,
@@ -211,6 +227,7 @@ export async function PATCH(req: Request) {
       id: user.id,
       name: nextName,
       email: nextEmail,
+      phoneCountryCode: nextPhoneCountry,
       phone: nextPhone,
       age: nextAge,
       skinType: nextSkin,

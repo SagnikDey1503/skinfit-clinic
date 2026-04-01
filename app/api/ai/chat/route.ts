@@ -217,9 +217,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const openaiKey =
-    process.env.OPENROUTER_API_KEY?.trim() ||
-    process.env.OPENAI_API_KEY?.trim();
+  const openaiKey = process.env.OPENAI_API_KEY?.trim();
   if (!openaiKey) {
     return NextResponse.json(
       { error: "OPENAI_API_KEY_NOT_CONFIGURED" },
@@ -366,18 +364,21 @@ export async function POST(req: Request) {
 
   const systemPrompt = ASSISTANT_SYSTEM[normalizedAssistant];
 
-  const openRouterBaseUrl =
-    process.env.OPENROUTER_BASE_URL?.trim() ||
-    "https://openrouter.ai/api/v1";
   const model =
-    process.env.OPENROUTER_MODEL?.trim() ||
     process.env.OPENAI_CHAT_MODEL?.trim() ||
-    "openai/gpt-4o-mini";
+    process.env.OPENAI_MODEL?.trim() ||
+    "gpt-4o-mini";
 
-  const openai = new OpenAI({
-    apiKey: openaiKey,
-    baseURL: openRouterBaseUrl,
-  });
+  const openaiBaseUrl = process.env.OPENAI_BASE_URL?.trim();
+
+  const openai = new OpenAI(
+    openaiBaseUrl
+      ? {
+          apiKey: openaiKey,
+          baseURL: openaiBaseUrl,
+        }
+      : { apiKey: openaiKey }
+  );
 
   const openaiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> =
     [

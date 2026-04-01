@@ -7,14 +7,23 @@ import { users } from "@/src/db/schema";
 import { SESSION_COOKIE_NAME } from "@/src/lib/auth/constants";
 import { getSessionSecret } from "@/src/lib/auth/session-secret";
 import { createSessionToken } from "@/src/lib/auth/session";
-import { validateRegistrationPhone } from "@/src/lib/auth/phone";
+import {
+  normalizeCountryCode,
+  validateNationalPhone,
+} from "@/src/lib/auth/phone";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD = 8;
 const MAX_NAME = 255;
 
 export async function POST(req: Request) {
-  let body: { name?: string; email?: string; password?: string; phone?: string };
+  let body: {
+    name?: string;
+    email?: string;
+    password?: string;
+    phone?: string;
+    phoneCountryCode?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -29,8 +38,11 @@ export async function POST(req: Request) {
   const email = typeof body.email === "string" ? body.email.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
   const phoneRaw = typeof body.phone === "string" ? body.phone : "";
+  const phoneCountryCode = normalizeCountryCode(
+    typeof body.phoneCountryCode === "string" ? body.phoneCountryCode : "+91"
+  );
 
-  const phoneCheck = validateRegistrationPhone(phoneRaw);
+  const phoneCheck = validateNationalPhone(phoneRaw);
   if (!phoneCheck.ok) {
     return NextResponse.json(
       { error: "INVALID_PHONE", message: phoneCheck.message },
@@ -108,7 +120,8 @@ export async function POST(req: Request) {
     .values({
       name,
       email: normalizedEmail,
-      phone: phoneCheck.value,
+      phoneCountryCode,
+      phone: phoneCheck.nationalDigits,
       passwordHash,
       role: "patient",
     })
@@ -151,7 +164,8 @@ export async function POST(req: Request) {
       id: inserted.id,
       email: inserted.email,
       name: inserted.name,
-      phone: phoneCheck.value,
+      phoneCountryCode,
+      phone: phoneCheck.nationalDigits,
     },
   });
 }

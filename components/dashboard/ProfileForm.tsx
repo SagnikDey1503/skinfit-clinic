@@ -12,6 +12,9 @@ export function ProfileForm({ initial }: Props) {
   const router = useRouter();
   const [name, setName] = useState(initial.name);
   const [email, setEmail] = useState(initial.email);
+  const [phoneCountryCode, setPhoneCountryCode] = useState(
+    initial.phoneCountryCode ?? "+91"
+  );
   const [phone, setPhone] = useState(initial.phone ?? "");
   const [age, setAge] = useState(
     initial.age != null ? String(initial.age) : ""
@@ -42,6 +45,7 @@ export function ProfileForm({ initial }: Props) {
       const body: Record<string, unknown> = {
         name: name.trim(),
         email: email.trim(),
+        phoneCountryCode: phoneCountryCode.trim() || "+91",
         phone: phone.trim(),
         skinType: skinType.trim() || null,
         primaryGoal: primaryGoal.trim() || null,
@@ -84,6 +88,8 @@ export function ProfileForm({ initial }: Props) {
       setConfirmPassword("");
       if (typeof data.user?.name === "string") setName(data.user.name);
       if (typeof data.user?.email === "string") setEmail(data.user.email);
+      if (typeof data.user?.phoneCountryCode === "string")
+        setPhoneCountryCode(data.user.phoneCountryCode);
       if (typeof data.user?.phone === "string") setPhone(data.user.phone);
       else if (data.user?.phone === null) setPhone("");
       if (data.user?.age === null) setAge("");
@@ -167,25 +173,43 @@ export function ProfileForm({ initial }: Props) {
           </div>
           <div>
             <label
-              htmlFor="pf-phone"
+              htmlFor="pf-phone-cc"
               className="mb-1.5 block text-sm font-medium text-zinc-700"
             >
               Phone number <span className="text-red-600">*</span>
             </label>
-            <input
-              id="pf-phone"
-              type="tel"
-              inputMode="tel"
-              required
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              disabled={loading}
-              autoComplete="tel"
-              className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
-              placeholder="+1 555 000 0000"
-            />
+            <div className="flex gap-2">
+              <input
+                id="pf-phone-cc"
+                type="text"
+                inputMode="tel"
+                autoComplete="tel-country-code"
+                required
+                value={phoneCountryCode}
+                onChange={(e) => setPhoneCountryCode(e.target.value)}
+                disabled={loading}
+                className="w-[5.5rem] shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-3 text-center text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
+                placeholder="+91"
+                aria-label="Country code"
+              />
+              <input
+                id="pf-phone"
+                type="tel"
+                inputMode="numeric"
+                required
+                value={phone}
+                onChange={(e) =>
+                  setPhone(e.target.value.replace(/[^\d\s-]/g, ""))
+                }
+                disabled={loading}
+                autoComplete="tel-national"
+                className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
+                placeholder="Mobile number"
+              />
+            </div>
             <p className="mt-1 text-xs text-zinc-500">
-              At least 10 digits (include country code if needed).
+              Country code defaults to +91. Enter at least 10 digits for your
+              number.
             </p>
           </div>
           <div>

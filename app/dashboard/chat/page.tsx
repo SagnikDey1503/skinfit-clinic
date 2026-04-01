@@ -55,6 +55,8 @@ export default function ChatPage() {
   const [contactPreviews, setContactPreviews] = useState<
     Partial<Record<AssistantId, { snippet: string; time: string }>>
   >({});
+  const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
+  const [typingIndex, setTypingIndex] = useState(0);
 
   const activeContact = useMemo(
     () => contacts.find((c) => c.id === activeAssistant)!,
@@ -184,6 +186,29 @@ export default function ChatPage() {
     setContactPreviews(next);
   }, [fetchPlainMessages]);
 
+  // Typewriter effect for the latest assistant message (AI only).
+  useEffect(() => {
+    if (!typingMessageId) return;
+    const msg = messages.find((m) => m.id === typingMessageId);
+    if (!msg) return;
+    setTypingIndex(0);
+
+    const step = Math.max(1, Math.floor(msg.text.length / 120)); // smaller step = slower typing
+    const interval = setInterval(() => {
+      setTypingIndex((prev) => {
+        const next = prev + step;
+        if (next >= msg.text.length) {
+          clearInterval(interval);
+          setTypingMessageId(null);
+          return msg.text.length;
+        }
+        return next;
+      });
+    }, 30);
+
+    return () => clearInterval(interval);
+  }, [typingMessageId, messages]);
+
   const fetchAssistantReply = useCallback(
     async (args: {
       assistantId: AssistantId;
@@ -243,6 +268,12 @@ export default function ChatPage() {
           if (cancelled) return;
 
           setMessages(seeded);
+          const lastAssistant = [...seeded]
+            .reverse()
+            .find((m) => m.sender !== "patient");
+          if (lastAssistant) {
+            setTypingMessageId(lastAssistant.id);
+          }
         } else {
           setMessages(plainMessages);
         }
@@ -344,6 +375,12 @@ export default function ChatPage() {
         // 4) Reload from DB to ensure correct ordering/contents.
         const refreshed = await fetchPlainMessages("ai");
         setMessages(refreshed);
+        const lastAssistant = [...refreshed]
+          .reverse()
+          .find((m) => m.sender !== "patient");
+        if (lastAssistant) {
+          setTypingMessageId(lastAssistant.id);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to send message.");
       } finally {
@@ -516,7 +553,11 @@ export default function ChatPage() {
                   }`}
                 >
                   <div className="text-sm leading-relaxed">
-                    <ReactMarkdown skipHtml={true}>{msg.text}</ReactMarkdown>
+                    <ReactMarkdown skipHtml={true}>
+                      {typingMessageId === msg.id && msg.sender !== "patient"
+                        ? msg.text.slice(0, typingIndex || msg.text.length)
+                        : msg.text}
+                    </ReactMarkdown>
                   </div>
                 </div>
               </div>

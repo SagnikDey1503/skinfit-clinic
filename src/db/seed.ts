@@ -43,7 +43,8 @@ async function seed() {
         age: 28,
         skinType: "Combination",
         primaryGoal: "Acne reduction",
-        phone: "+1 555 010 0199",
+        phoneCountryCode: "+91",
+        phone: "9876543210",
       })
       .onConflictDoUpdate({
         target: users.email,
@@ -54,7 +55,8 @@ async function seed() {
           age: 28,
           skinType: "Combination",
           primaryGoal: "Acne reduction",
-          phone: "+1 555 010 0199",
+          phoneCountryCode: "+91",
+          phone: "9876543210",
         },
       });
 
@@ -65,7 +67,8 @@ async function seed() {
         email: DOCTOR_EMAIL,
         passwordHash: doctorHash,
         role: "doctor",
-        phone: "+1 555 010 0299",
+        phoneCountryCode: "+1",
+        phone: "5550100299",
       })
       .onConflictDoUpdate({
         target: users.email,
@@ -73,7 +76,8 @@ async function seed() {
           passwordHash: doctorHash,
           name: "Dr. Sarah Chen",
           role: "doctor",
-          phone: "+1 555 010 0299",
+          phoneCountryCode: "+1",
+          phone: "5550100299",
         },
       });
 

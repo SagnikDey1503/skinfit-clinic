@@ -17,6 +17,7 @@ export function LoginForm() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phoneCountryCode, setPhoneCountryCode] = useState("+91");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -29,6 +30,7 @@ export function LoginForm() {
     (next: Mode) => {
       setMode(next);
       setError(null);
+      setPhoneCountryCode("+91");
       setPhone("");
       setPassword("");
       setConfirmPassword("");
@@ -86,6 +88,7 @@ export function LoginForm() {
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim(),
+          phoneCountryCode: phoneCountryCode.trim() || "+91",
           phone: phone.trim(),
           password,
         }),
@@ -259,21 +262,36 @@ export function LoginForm() {
                 >
                   Phone number <span className="text-red-600">*</span>
                 </label>
-                <input
-                  id="reg-phone"
-                  name="phone"
-                  type="tel"
-                  autoComplete="tel"
-                  inputMode="tel"
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  disabled={loading}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
-                  placeholder="+1 555 000 0000"
-                />
+                <div className="flex gap-2">
+                  <input
+                    id="reg-phone-cc"
+                    name="phoneCountryCode"
+                    type="text"
+                    autoComplete="tel-country-code"
+                    required
+                    value={phoneCountryCode}
+                    onChange={(e) => setPhoneCountryCode(e.target.value)}
+                    disabled={loading}
+                    className="w-[5.5rem] shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-3 text-center text-slate-900 shadow-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+                    placeholder="+91"
+                    aria-label="Country code"
+                  />
+                  <input
+                    id="reg-phone"
+                    name="phone"
+                    type="tel"
+                    autoComplete="tel-national"
+                    inputMode="numeric"
+                    required
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    disabled={loading}
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+                    placeholder="10-digit mobile"
+                  />
+                </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Include country code if applicable. At least 10 digits required.
+                  Defaults to +91. Enter at least 10 digits for your number.
                 </p>
               </div>
 
