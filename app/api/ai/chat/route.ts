@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/src/db";
 import {
   appointments,
+  dailyLogs,
   priorityReminders,
   scheduleEvents,
   scans,
@@ -10,8 +11,10 @@ import {
   visitNotes,
 } from "@/src/db/schema";
 import { getSessionUserId } from "@/src/lib/auth/get-session";
+import { utcInstantToClinicWallYmdHm } from "@/src/lib/clinicSlotUtcInstant";
 import { localCalendarYmd, dateOnlyFromYmd, ymdFromDateOnly } from "@/src/lib/date-only";
 import OpenAI from "openai";
+import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "@/src/lib/routine";
 
 type AssistantId = "ai" | "doctor" | "support";
 
@@ -63,10 +66,34 @@ type ChatReminder = {
   sortOrder: number;
 };
 
+type ChatDailyLog = {
+  id: string;
+  userId: string;
+  date: Date;
+  amRoutine: boolean;
+  pmRoutine: boolean;
+  mood: string;
+  sleepHours: number;
+  stressLevel: number;
+  waterGlasses: number;
+  journalEntry: string | null;
+  routineAmSteps: boolean[] | null;
+  routinePmSteps: boolean[] | null;
+};
+
 function truncate(s: string, max: number): string {
   const str = s ?? "";
   if (str.length <= max) return str;
   return `${str.slice(0, max - 1)}…`;
+}
+
+function summarizeRoutineSteps(
+  steps: boolean[] | null | undefined,
+  labels: readonly string[]
+): string {
+  const s = Array.isArray(steps) ? steps : [];
+  const done = labels.filter((_, i) => Boolean(s[i]));
+  return done.length ? done.join(", ") : "Not done";
 }
 
 function addDaysUTCNoon(date: Date, days: number): Date {
@@ -80,6 +107,7 @@ function buildPatientContext(params: {
   latestScan: ChatScan | undefined;
   recentScans: Array<ChatScan>;
   recentVisitNotes: Array<ChatVisitNote>;
+  recentDailyLogs: Array<ChatDailyLog>;
   upcomingEvents: Array<ChatScheduleEvent>;
   nextAppointment: ChatAppointment | undefined;
   reminders: Array<ChatReminder>;
@@ -89,6 +117,7 @@ function buildPatientContext(params: {
     latestScan,
     recentScans,
     recentVisitNotes,
+    recentDailyLogs,
     upcomingEvents,
     nextAppointment,
     reminders,
@@ -133,8 +162,31 @@ function buildPatientContext(params: {
       ? reminders.map((r) => `- ${truncate(r.title, 90)} (${r.priority})`).join("\n")
       : `- No active reminders.`;
 
+  const dailyJournalLines =
+    recentDailyLogs.length > 0
+      ? recentDailyLogs
+          .slice()
+          .sort((a, b) => b.date.getTime() - a.date.getTime())
+          .map((d) => {
+            const date = ymdFromDateOnly(d.date);
+            const amSteps = summarizeRoutineSteps(d.routineAmSteps, AM_ROUTINE_ITEMS);
+            const pmSteps = summarizeRoutineSteps(d.routinePmSteps, PM_ROUTINE_ITEMS);
+            const journal = d.journalEntry ? truncate(d.journalEntry, 220) : "N/A";
+            return [
+              `- ${date}: mood "${truncate(d.mood, 40)}", sleep ${d.sleepHours}h, stress ${d.stressLevel}/10, water ${d.waterGlasses} glasses`,
+              `  AM routine: ${d.amRoutine ? "done" : "not done"} (${amSteps})`,
+              `  PM routine: ${d.pmRoutine ? "done" : "not done"} (${pmSteps})`,
+              `  Journal: ${journal}`,
+            ].join("\n");
+          })
+          .join("\n")
+      : `- No daily journal entries found.`;
+
   const nextAppointmentLine = nextAppointment
-    ? `Next appointment: ${ymdFromDateOnly(nextAppointment.dateTime)} ${new Date(nextAppointment.dateTime).toISOString().slice(11, 16)} (type: ${nextAppointment.type}, status: ${nextAppointment.status}).`
+    ? (() => {
+        const { ymd, hm } = utcInstantToClinicWallYmdHm(nextAppointment.dateTime);
+        return `Next appointment: ${ymd} ${hm} (type: ${nextAppointment.type}, status: ${nextAppointment.status}).`;
+      })()
     : `No upcoming appointments found.`;
 
   return [
@@ -145,6 +197,8 @@ function buildPatientContext(params: {
     `Recent scans (higher score = better skin health):\n${recentScansLines}`,
     ``,
     `Visit / treatment notes:\n${visitNotesLines}`,
+    ``,
+    `Daily journal (last entries):\n${dailyJournalLines}`,
     ``,
     `Upcoming schedule events (next 30 days):\n${upcomingEventsLines}`,
     ``,
@@ -160,6 +214,7 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "You help a patient understand their skin condition using the patient context provided by the app.",
     "You must not diagnose. Provide general educational guidance and conservative next steps.",
     "You should explain what is normal vs not normal after routines/procedures and when to contact the clinic.",
+    "Use the patient's daily journal (AM/PM routines, mood, sleep, stress, water, journal text) to make your guidance context-aware.",
     "Treat higher scan scores as better skin health.",
     "Keep your answer short (max ~180 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
     "If the user describes severe symptoms (e.g., trouble breathing, rapidly worsening swelling, spreading infection, severe eye pain), instruct them to seek urgent medical care immediately.",
@@ -172,6 +227,7 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "You provide cautious, non-definitive medical guidance based only on the patient context provided.",
     "You must not claim you are the user's real doctor or provide a diagnosis. Encourage clinic contact for medical decisions.",
     "Use a conservative approach; focus on after-care and safety.",
+    "Use the patient's daily journal (AM/PM routines, mood, sleep, stress, water, journal text) to provide safer, personalized after-care suggestions.",
     "Keep your answer short (max ~180 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
     "If the user asks to book or discuss appointments, refer to the clinic support flow and suggest what details to share.",
     "Treat higher scan scores as better skin health.",
@@ -183,6 +239,7 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "Your job is to answer FAQs, explain procedures at a high level, guide patients to the right next step, and help with booking/follow-ups using the provided patient context.",
     "You should not provide medical diagnosis. If the user is asking medical questions, you can summarize likely next-care steps and then recommend talking to the SkinnFit AI Assistant or Dr.",
     "Be concise. Ask follow-up questions needed for scheduling (preferred date/time, treatment type).",
+    "Use the patient's daily journal to tailor follow-up questions and routine reminders.",
     "Use provided upcoming schedule events and next appointment details when possible.",
     "If the user asks for costs or insurance details and you don't have information, say you don't know and suggest contacting the clinic.",
     "Keep your answer short (max ~160 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
@@ -352,11 +409,32 @@ export async function POST(req: Request) {
     },
   });
 
+  const recentDailyLogs = await db.query.dailyLogs.findMany({
+    where: eq(dailyLogs.userId, userId),
+    orderBy: [desc(dailyLogs.date)],
+    limit: 5,
+    columns: {
+      id: true,
+      userId: true,
+      date: true,
+      amRoutine: true,
+      pmRoutine: true,
+      mood: true,
+      sleepHours: true,
+      stressLevel: true,
+      waterGlasses: true,
+      journalEntry: true,
+      routineAmSteps: true,
+      routinePmSteps: true,
+    },
+  });
+
   const patientContext = buildPatientContext({
     userName: user?.name ?? "Patient",
     latestScan,
     recentScans,
     recentVisitNotes,
+    recentDailyLogs,
     upcomingEvents,
     nextAppointment,
     reminders,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
@@ -103,6 +103,12 @@ const TREATMENT_IMAGES = [
   "https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=280&h=400&fit=crop&q=85",
 ];
 
+function shortenUrl(url: string, maxLen = 38) {
+  const s = url.trim();
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen - 1)}…`;
+}
+
 export interface SkinScanReportBodyProps {
   userName: string;
   age?: number;
@@ -112,6 +118,8 @@ export interface SkinScanReportBodyProps {
   metrics: ReportMetrics;
   aiSummary?: string;
   scanDate: Date;
+  autoDownload?: boolean;
+  autoCloseAfterDownload?: boolean;
   /** Renders the close control (e.g. in the post-scan modal). */
   onClose?: () => void;
   className?: string;
@@ -126,29 +134,76 @@ export function SkinScanReportBody({
   metrics,
   aiSummary,
   scanDate,
+  autoDownload = false,
+  autoCloseAfterDownload = false,
   onClose,
   className = "",
 }: SkinScanReportBodyProps) {
   const reportRef = useRef<HTMLDivElement>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const overall = clamp(metrics.overall_score);
   const lastScanLabel = formatDistanceToNow(scanDate, { addSuffix: true });
 
   const handleDownloadPdf = useCallback(async () => {
     const el = reportRef.current;
     if (!el) return;
+    setPdfError(null);
     setPdfLoading(true);
+    let success = false;
     try {
+      // Ensure any in-flight animations/styles are applied before rendering to canvas.
+      await new Promise<void>((resolve) =>
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() => resolve())
+        )
+      );
+      // When autoDownloading, many sections are still animating in (Framer Motion).
+      // Give a small buffer so the patient image + sections are visible in the capture.
+      if (autoDownload) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 850));
+      }
       await downloadScanReportPdf(
         el,
-        `skin-scan-report-${format(scanDate, "yyyy-MM-dd-HHmm")}.pdf`
+        `ai-scan-report-${format(scanDate, "yyyy-MM-dd-HHmm")}.pdf`
       );
+      success = true;
     } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "string"
+            ? e
+            : `PDF download failed: ${JSON.stringify(e)}`;
+      setPdfError(msg);
       console.error(e);
     } finally {
       setPdfLoading(false);
+      // Only close after a confirmed successful generation.
+      if (
+        autoCloseAfterDownload &&
+        success &&
+        typeof window !== "undefined" &&
+        window.opener
+      ) {
+        // Allow the browser a bit longer so the download isn't interrupted.
+        window.setTimeout(() => window.close(), 2000);
+      }
     }
-  }, [scanDate]);
+  }, [scanDate, autoCloseAfterDownload, autoDownload]);
+
+  const didAutoDownloadRef = useRef(false);
+  useEffect(() => {
+    if (!autoDownload) return;
+    if (didAutoDownloadRef.current) return;
+    didAutoDownloadRef.current = true;
+    // Start quickly; PDF generation already waits for images to load.
+    // We avoid long delays to reduce browser auto-download blocking.
+    const t = window.requestAnimationFrame(() => {
+      void handleDownloadPdf();
+    });
+    return () => window.cancelAnimationFrame(t);
+  }, [autoDownload, handleDownloadPdf]);
 
   const faceImgCrossOrigin =
     imageUrl.startsWith("http://") || imageUrl.startsWith("https://")
@@ -162,7 +217,7 @@ export function SkinScanReportBody({
           type="button"
           onClick={handleDownloadPdf}
           disabled={pdfLoading}
-          className="flex h-10 items-center gap-1.5 rounded-full border border-white/70 bg-white/90 px-3 text-xs font-semibold text-zinc-600 shadow-[0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-md transition hover:bg-white hover:text-zinc-900 disabled:opacity-60"
+          className="flex h-10 items-center gap-1.5 rounded-full border border-white bg-white px-3 text-xs font-semibold text-zinc-600 shadow-[0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-md transition hover:bg-white hover:text-zinc-900 disabled:opacity-60"
           title="Download report as PDF"
         >
           <Download className="h-4 w-4 shrink-0" aria-hidden />
@@ -172,20 +227,25 @@ export function SkinScanReportBody({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/70 bg-white/75 text-zinc-500 shadow-[0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-md transition hover:border-white hover:bg-white hover:text-zinc-900 hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)] active:scale-[0.97]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white bg-white text-zinc-500 shadow-[0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-md transition hover:border-white hover:bg-white hover:text-zinc-900 hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)] active:scale-[0.97]"
             aria-label="Close"
           >
             <X className="h-[15px] w-[15px] stroke-[1.75]" />
           </button>
         ) : null}
       </div>
+      {pdfError ? (
+        <div className="pointer-events-none absolute right-3 top-16 z-40 max-w-[280px] rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 shadow-sm">
+          {pdfError}
+        </div>
+      ) : null}
 
     <motion.div
       ref={reportRef}
       initial={{ opacity: 0, y: 20, scale: 0.99 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.45, ease: easeOut }}
-      className="relative w-full overflow-hidden rounded-[22px] border border-white/60"
+      className="relative w-full overflow-hidden rounded-[22px] border border-white"
       style={{
         backgroundColor: BEIGE,
         boxShadow: `
@@ -196,7 +256,7 @@ export function SkinScanReportBody({
       }}
     >
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-white/35 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-white to-transparent"
         aria-hidden
       />
 
@@ -208,8 +268,8 @@ export function SkinScanReportBody({
             transition={{ delay: 0.06, duration: 0.4, ease: easeOut }}
             className="max-w-md pr-0 lg:pr-5"
           >
-            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500/90">
-              Skin analysis report
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
+              AI scan report
             </p>
             <h2
               id="scan-report-title"
@@ -222,7 +282,7 @@ export function SkinScanReportBody({
               <span className="mx-2.5 inline-block h-0.5 w-0.5 rounded-full bg-zinc-400 align-middle" />
               Skin type: {skinType}
             </p>
-            <p className="mt-5 text-[14px] leading-[1.7] text-zinc-600/95">
+            <p className="mt-5 text-[14px] leading-[1.7] text-zinc-600">
               {LOREM_PROFILE}
             </p>
           </motion.div>
@@ -233,9 +293,9 @@ export function SkinScanReportBody({
             transition={{ delay: 0.1, duration: 0.45, ease: easeOut }}
             className="relative mx-auto flex w-full max-w-[220px] justify-center sm:max-w-[260px]"
           >
-            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[18px] bg-zinc-200 ring-1 ring-black/[0.06] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.18),0_8px_16px_-6px_rgba(0,0,0,0.08)]">
+            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[18px] bg-zinc-200 ring-1 ring-[rgba(0,0,0,0.18)] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.18),0_8px_16px_-6px_rgba(0,0,0,0.08)]">
               <div
-                className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-black/[0.06] via-transparent to-white/10"
+                className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-black via-transparent to-white"
                 aria-hidden
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -255,7 +315,7 @@ export function SkinScanReportBody({
                     duration: 0.35,
                     ease: easeOut,
                   }}
-                  className="absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.04)]"
+                  className="absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-white shadow-[0_2px_8px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.04)]"
                   style={{
                     left: `${region.coordinates.x}%`,
                     top: `${region.coordinates.y}%`,
@@ -294,7 +354,7 @@ export function SkinScanReportBody({
             ].map((row) => (
               <div
                 key={row.label}
-                className="flex w-full max-w-[210px] items-center justify-between gap-3 rounded-2xl border border-white/50 bg-white/35 px-3 py-2.5 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] backdrop-blur-[2px] lg:w-[210px]"
+                className="flex w-full max-w-[210px] items-center justify-between gap-3 rounded-2xl border border-white bg-white px-3 py-2.5 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] backdrop-blur-[2px] lg:w-[210px]"
               >
                 <span className="text-[13px] font-semibold tracking-tight text-zinc-700">
                   {row.label}
@@ -320,7 +380,7 @@ export function SkinScanReportBody({
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.18, duration: 0.45, ease: easeOut }}
-          className="absolute bottom-0 left-1/2 z-10 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 translate-y-1/2 rounded-[20px] border border-white/80 bg-white/95 px-5 py-6 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12),0_8px_16px_-4px_rgba(0,0,0,0.06)] backdrop-blur-sm sm:px-9 sm:py-7"
+          className="absolute bottom-0 left-1/2 z-10 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 translate-y-1/2 rounded-[20px] border border-white bg-white px-5 py-6 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12),0_8px_16px_-4px_rgba(0,0,0,0.06)] backdrop-blur-sm sm:px-9 sm:py-7"
         >
           <div className="flex flex-col items-stretch gap-5 sm:flex-row sm:items-center sm:gap-8">
             <div className="min-w-0 flex-1">
@@ -342,7 +402,7 @@ export function SkinScanReportBody({
               aria-hidden
             />
             <div className="flex flex-1 justify-center sm:justify-end">
-              <div className="rounded-full p-1 shadow-[0_4px_14px_rgba(242,156,145,0.25)] ring-1 ring-black/[0.04]">
+              <div className="rounded-full p-1 shadow-[0_4px_14px_rgba(242,156,145,0.25)] ring-1 ring-[rgba(0,0,0,0.18)]">
                 <Donut
                   percent={overall}
                   size={104}
@@ -358,38 +418,38 @@ export function SkinScanReportBody({
       </div>
 
       <div
-        className="relative mt-16 border-t border-white/40 px-5 py-12 sm:px-9 sm:py-14"
+        className="relative mt-16 border-t border-white px-5 py-12 sm:px-9 sm:py-14"
         style={{
           background: `linear-gradient(180deg, ${TEAL_BAND} 0%, #d8ebe6 100%)`,
         }}
       >
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/70 to-transparent"
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent"
           aria-hidden
         />
         <div className="mx-auto grid max-w-3xl grid-cols-1 gap-10 md:grid-cols-2 md:gap-12">
-          <div className="relative md:pr-10 md:after:absolute md:after:right-0 md:after:top-0 md:after:h-full md:after:w-px md:after:bg-gradient-to-b md:after:from-zinc-400/25 md:after:via-zinc-400/40 md:after:to-zinc-400/25">
-            <div className="mb-4 h-px w-8 rounded-full bg-zinc-800/25" aria-hidden />
+          <div className="relative md:pr-10 md:after:absolute md:after:right-0 md:after:top-0 md:after:h-full md:after:w-px md:after:bg-gradient-to-b md:after:from-zinc-400 md:after:via-zinc-400 md:after:to-zinc-400">
+            <div className="mb-4 h-px w-8 rounded-full bg-zinc-800" aria-hidden />
             <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-800">
               Overview
             </h3>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700/95">
+            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
               {aiSummary?.trim() ||
                 "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early."}
             </p>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700/95">
+            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
               {OVERVIEW_P2}
             </p>
           </div>
           <div>
-            <div className="mb-4 h-px w-8 rounded-full bg-zinc-800/25" aria-hidden />
+            <div className="mb-4 h-px w-8 rounded-full bg-zinc-800" aria-hidden />
             <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-800">
               Causes/Challenges
             </h3>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700/95">
+            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
               {CAUSES_P1}
             </p>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700/95">
+            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
               {CAUSES_P2}
             </p>
           </div>
@@ -401,35 +461,57 @@ export function SkinScanReportBody({
         style={{ backgroundColor: BEIGE }}
       >
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-black/[0.06] to-transparent"
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-black to-transparent"
           aria-hidden
         />
         <h3 className="text-center text-[10px] font-bold uppercase tracking-[0.28em] text-zinc-800">
           Treatment videos
         </h3>
         <div className="mx-auto mt-8 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          {TREATMENT_IMAGES.map((src, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 8 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-40px" }}
-              transition={{ delay: i * 0.06, duration: 0.4, ease: easeOut }}
-              className="group relative aspect-[3/5] overflow-hidden rounded-[14px] bg-zinc-200 ring-1 ring-black/[0.05] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.12)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_32px_-8px_rgba(0,0,0,0.15)]"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={src}
-                alt=""
-                className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-                crossOrigin="anonymous"
-              />
-              <div
-                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/[0.08] to-transparent opacity-0 transition group-hover:opacity-100"
-                aria-hidden
-              />
-            </motion.div>
-          ))}
+          {TREATMENT_IMAGES.map((src, i) => {
+            if (autoDownload) {
+              // In the PDF we don't want to rely on remote image loading.
+              return (
+                <div
+                  key={i}
+                  className="rounded-[14px] border border-white bg-white/60 px-3 py-3 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.08)]"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Video {i + 1}
+                  </p>
+                  <p
+                    className="mt-2 break-all text-[11px] font-medium text-zinc-700"
+                    title={src}
+                  >
+                    {shortenUrl(src)}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 8 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-40px" }}
+                transition={{ delay: i * 0.06, duration: 0.4, ease: easeOut }}
+                className="group relative aspect-[3/5] overflow-hidden rounded-[14px] bg-zinc-200 ring-1 ring-[rgba(0,0,0,0,0.18)] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.12)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_32px_-8px_rgba(0,0,0,0.15)]"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                  crossOrigin="anonymous"
+                />
+                <div
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-0 transition group-hover:opacity-100"
+                  aria-hidden
+                />
+              </motion.div>
+            );
+          })}
         </div>
         <div className="mt-12 flex flex-col items-center gap-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-600">

@@ -2,6 +2,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { and, count, eq, isNull } from "drizzle-orm";
 import { DEMO_LOGIN_EMAIL } from "../lib/auth/demo-login";
+import { CLINIC_DOCTOR_EMAIL } from "../lib/clinicDoctor";
 import {
   dateOnlyFromYmd,
   localCalendarYmd,
@@ -23,8 +24,6 @@ import {
 
 const DEMO_PATIENT_EMAIL = DEMO_LOGIN_EMAIL;
 const DEMO_PATIENT_PASSWORD = "SkinFitDemo2024!";
-const DOCTOR_EMAIL = "doctor@skinfit.com";
-
 async function seed() {
   console.log("🌱 Seeding database...");
 
@@ -63,8 +62,8 @@ async function seed() {
     await db
       .insert(users)
       .values({
-        name: "Dr. Sarah Chen",
-        email: DOCTOR_EMAIL,
+        name: "Dr. Ruby Sachdev",
+        email: CLINIC_DOCTOR_EMAIL,
         passwordHash: doctorHash,
         role: "doctor",
         phoneCountryCode: "+1",
@@ -74,7 +73,7 @@ async function seed() {
         target: users.email,
         set: {
           passwordHash: doctorHash,
-          name: "Dr. Sarah Chen",
+          name: "Dr. Ruby Sachdev",
           role: "doctor",
           phoneCountryCode: "+1",
           phone: "5550100299",
@@ -89,7 +88,7 @@ async function seed() {
     const [doctor] = await db
       .select()
       .from(users)
-      .where(eq(users.email, DOCTOR_EMAIL))
+      .where(eq(users.email, CLINIC_DOCTOR_EMAIL))
       .limit(1);
 
     if (!patient || !doctor) {

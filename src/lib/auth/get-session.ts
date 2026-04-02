@@ -30,6 +30,8 @@ export type SessionUserProfile = {
   age: number | null;
   skinType: string | null;
   primaryGoal: string | null;
+  /** Hours before a visit to receive a Clinic Support chat reminder; 0 = off. */
+  appointmentReminderHoursBefore: number;
 };
 
 export async function getSessionUserProfile(): Promise<SessionUserProfile | null> {
@@ -45,6 +47,7 @@ export async function getSessionUserProfile(): Promise<SessionUserProfile | null
       age: users.age,
       skinType: users.skinType,
       primaryGoal: users.primaryGoal,
+      appointmentReminderHoursBefore: users.appointmentReminderHoursBefore,
     })
     .from(users)
     .where(eq(users.id, id))

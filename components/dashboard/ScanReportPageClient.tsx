@@ -13,6 +13,8 @@ export interface ScanReportPageClientProps {
   metrics: ReportMetrics;
   aiSummary: string | null;
   scanDateIso: string;
+  autoDownload?: boolean;
+  autoCloseAfterDownload?: boolean;
 }
 
 export function ScanReportPageClient({
@@ -23,8 +25,19 @@ export function ScanReportPageClient({
   metrics,
   aiSummary,
   scanDateIso,
+  autoDownload = false,
+  autoCloseAfterDownload = false,
 }: ScanReportPageClientProps) {
   const scanDate = new Date(scanDateIso);
+  const displayScanTitle = (() => {
+    if (!scanTitle) return null;
+    const raw = scanTitle.trim();
+    // Remove "AI skin ..." prefixes to keep UI consistent ("AI scan" only).
+    const stripped = raw
+      .replace(/^ai\s*skin\s*scan\s*[–-]\s*/i, "")
+      .replace(/^ai\s*skin\s*analysis\s*$/i, "");
+    return stripped || null;
+  })();
 
   return (
     <div className="space-y-4 pb-8">
@@ -40,10 +53,12 @@ export function ScanReportPageClient({
 
       <div>
         <h1 className="text-center text-xl font-bold tracking-tight text-zinc-900">
-          Skin analysis report
+          AI scan report
         </h1>
-        {scanTitle ? (
-          <p className="mt-1 text-center text-sm text-zinc-600">{scanTitle}</p>
+        {displayScanTitle ? (
+          <p className="mt-1 text-center text-sm text-zinc-600">
+            {displayScanTitle}
+          </p>
         ) : null}
       </div>
 
@@ -55,6 +70,8 @@ export function ScanReportPageClient({
           metrics={metrics}
           aiSummary={aiSummary ?? undefined}
           scanDate={scanDate}
+          autoDownload={autoDownload}
+          autoCloseAfterDownload={autoCloseAfterDownload}
         />
       </div>
     </div>

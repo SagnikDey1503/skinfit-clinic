@@ -8,12 +8,24 @@ import { ScanReportPageClient } from "../../../../../components/dashboard/ScanRe
 
 export default async function ScanReportPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: { [key: string]: string | string[] | undefined };
 }) {
   const { id: idParam } = await params;
   const id = Number.parseInt(idParam, 10);
   if (!Number.isFinite(id) || id < 1) notFound();
+
+  const downloadParam = searchParams?.download;
+  const autoDownload =
+    typeof downloadParam === "string" &&
+    (downloadParam === "1" || downloadParam === "true" || downloadParam === "pdf");
+
+  const autocloseParam = searchParams?.autoclose;
+  const autoCloseAfterDownload =
+    typeof autocloseParam === "string" &&
+    (autocloseParam === "1" || autocloseParam === "true");
 
   const userId = await getSessionUserId();
   if (!userId) redirect("/login");
@@ -57,6 +69,8 @@ export default async function ScanReportPage({
       }}
       aiSummary={row.aiSummary}
       scanDateIso={row.createdAt.toISOString()}
+      autoDownload={autoDownload}
+      autoCloseAfterDownload={autoCloseAfterDownload}
     />
   );
 }

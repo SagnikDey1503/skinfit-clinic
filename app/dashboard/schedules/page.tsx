@@ -1,14 +1,52 @@
 import { redirect } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/src/db";
-import { priorityReminders, scheduleEvents } from "@/src/db/schema";
-import { getSessionUserId } from "@/src/lib/auth/get-session";
 import {
-  DEFAULT_PRIORITY_REMINDERS,
-  getDefaultScheduleEvents,
-} from "@/src/lib/defaultSchedulesData";
-import { dateOnlyFromYmd, ymdFromDateOnly } from "@/src/lib/date-only";
+  appointments,
+  priorityReminders,
+  scheduleEvents,
+  users,
+} from "@/src/db/schema";
+import { getSessionUserId } from "@/src/lib/auth/get-session";
+import { DEFAULT_PRIORITY_REMINDERS } from "@/src/lib/defaultSchedulesData";
+import { appointmentCalendarTitle } from "@/src/lib/doctorDisplayName";
+import { utcInstantToClinicWallYmdHm } from "@/src/lib/clinicSlotUtcInstant";
+import { ymdFromDateOnly } from "@/src/lib/date-only";
 import SchedulesPageClient from "@/components/dashboard/SchedulesPageClient";
+
+function appointmentTypeLabel(t: string): string {
+  if (t === "consultation") return "Consultation";
+  if (t === "follow-up") return "Follow-up";
+  if (t === "scan-review") return "Scan review";
+  return t;
+}
+
+function cmpCalendarEventRows(
+  a: {
+    eventDateYmd: string;
+    eventTimeHm: string | null;
+    title: string;
+  },
+  b: {
+    eventDateYmd: string;
+    eventTimeHm: string | null;
+    title: string;
+  }
+): number {
+  const c = a.eventDateYmd.localeCompare(b.eventDateYmd);
+  if (c !== 0) return c;
+  const ta =
+    a.eventTimeHm && /^\d{2}:\d{2}$/.test(a.eventTimeHm)
+      ? a.eventTimeHm
+      : "99:99";
+  const tb =
+    b.eventTimeHm && /^\d{2}:\d{2}$/.test(b.eventTimeHm)
+      ? b.eventTimeHm
+      : "99:99";
+  const ct = ta.localeCompare(tb);
+  if (ct !== 0) return ct;
+  return a.title.localeCompare(b.title);
+}
 
 export default async function SchedulesPage() {
   const userId = await getSessionUserId();
@@ -79,7 +117,7 @@ export default async function SchedulesPage() {
     completedAtIso: (r.completedAt ?? r.updatedAt).toISOString(),
   }));
 
-  let eventRows = await db.query.scheduleEvents.findMany({
+  const eventRows = await db.query.scheduleEvents.findMany({
     where: eq(scheduleEvents.userId, userId),
     orderBy: [
       asc(scheduleEvents.eventDate),
@@ -95,34 +133,24 @@ export default async function SchedulesPage() {
     },
   });
 
-  if (eventRows.length === 0) {
-    await db.insert(scheduleEvents).values(
-      getDefaultScheduleEvents().map((s) => ({
-        userId,
-        eventDate: dateOnlyFromYmd(s.ymd),
-        eventTimeHm: s.timeHm,
-        title: s.title,
-        completed: false,
-      }))
+  const bookedRows = await db
+    .select({
+      id: appointments.id,
+      dateTime: appointments.dateTime,
+      type: appointments.type,
+      doctorName: users.name,
+      status: appointments.status,
+    })
+    .from(appointments)
+    .innerJoin(users, eq(appointments.doctorId, users.id))
+    .where(
+      and(
+        eq(appointments.userId, userId),
+        inArray(appointments.status, ["scheduled", "completed"])
+      )
     );
-    eventRows = await db.query.scheduleEvents.findMany({
-      where: eq(scheduleEvents.userId, userId),
-      orderBy: [
-        asc(scheduleEvents.eventDate),
-        asc(scheduleEvents.eventTimeHm),
-        asc(scheduleEvents.title),
-      ],
-      columns: {
-        id: true,
-        eventDate: true,
-        eventTimeHm: true,
-        title: true,
-        completed: true,
-      },
-    });
-  }
 
-  const initialScheduleEvents = eventRows.map((r) => ({
+  const fromSchedule = eventRows.map((r) => ({
     id: r.id,
     eventDateYmd: ymdFromDateOnly(r.eventDate),
     eventTimeHm: r.eventTimeHm ?? null,
@@ -130,11 +158,32 @@ export default async function SchedulesPage() {
     completed: r.completed,
   }));
 
+  const fromBookings = bookedRows.map((r) => {
+    const { ymd, hm } = utcInstantToClinicWallYmdHm(r.dateTime);
+    const isDone = r.status === "completed";
+    return {
+      id: `appt:${r.id}`,
+      eventDateYmd: ymd,
+      eventTimeHm: hm,
+      title: appointmentCalendarTitle(
+        appointmentTypeLabel(r.type),
+        r.doctorName ?? ""
+      ),
+      completed: isDone,
+    };
+  });
+
+  const initialScheduleEvents = [...fromSchedule, ...fromBookings].sort(
+    cmpCalendarEventRows
+  );
+
   return (
-    <SchedulesPageClient
-      initialActiveReminders={initialActiveReminders}
-      initialCompletedHistory={initialCompletedHistory}
-      initialScheduleEvents={initialScheduleEvents}
-    />
+    <div className="space-y-6">
+      <SchedulesPageClient
+        initialActiveReminders={initialActiveReminders}
+        initialCompletedHistory={initialCompletedHistory}
+        initialScheduleEvents={initialScheduleEvents}
+      />
+    </div>
   );
 }

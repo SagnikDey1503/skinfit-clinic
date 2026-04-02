@@ -7,7 +7,6 @@ import { DashboardView } from "../../components/dashboard/DashboardView";
 import { getSessionUserId } from "../../src/lib/auth/get-session";
 import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "../../src/lib/routine";
 import { dateOnlyFromYmd, localCalendarYmd } from "../../src/lib/date-only";
-
 export default async function DashboardPage() {
   const userId = await getSessionUserId();
   if (!userId) {

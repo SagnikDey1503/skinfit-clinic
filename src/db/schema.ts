@@ -35,6 +35,12 @@ export const reminderPriorityEnum = pgEnum("reminder_priority", [
   "low",
 ]);
 
+// Appointment Requests (clinic approval workflow)
+export const appointmentRequestStatusEnum = pgEnum(
+  "appointment_request_status",
+  ["pending", "approved", "cancelled"]
+);
+
 // Users
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -52,6 +58,13 @@ export const users = pgTable("users", {
   age: integer("age"),
   skinType: varchar("skin_type", { length: 100 }),
   primaryGoal: varchar("primary_goal", { length: 255 }),
+  /**
+   * Hours before a scheduled visit to post a Clinic Support reminder (chat).
+   * Default 24 (one day). Set to 0 to turn reminders off.
+   */
+  appointmentReminderHoursBefore: integer("appointment_reminder_hours_before")
+    .notNull()
+    .default(24),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -147,8 +160,85 @@ export const appointments = pgTable("appointments", {
   status: appointmentStatusEnum("status").notNull().default("scheduled"),
   type: appointmentTypeEnum("type").notNull().default("consultation"),
 
+  /** When the automated Clinic Support pre-visit reminder was sent (once per appointment). */
+  clinicReminderSentAt: timestamp("clinic_reminder_sent_at", {
+    withTimezone: true,
+  }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Doctor appointment slots (clinic feeds a timetable; patients request from slots)
+export const doctorSlots = pgTable(
+  "doctor_slots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorId: uuid("doctor_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    slotDate: date("slot_date", { mode: "date" }).notNull(),
+    /** Local time of day `HH:mm` (24h), e.g. `14:30`. */
+    slotTimeHm: varchar("slot_time", { length: 5 }).notNull(),
+    /** Optional end time same day; if null, clients use start + 30 minutes. */
+    slotEndTimeHm: varchar("slot_end_time", { length: 5 }),
+    title: text("title").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    doctorSlotUniqueIdx: uniqueIndex("doctor_slots_doctor_date_time_uidx").on(
+      table.doctorId,
+      table.slotDate,
+      table.slotTimeHm
+    ),
+  })
+);
+
+// Appointment requests created by patient; manually approved/cancelled by clinic
+export const appointmentRequests = pgTable(
+  "appointment_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    doctorId: uuid("doctor_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    doctorSlotId: uuid("doctor_slot_id")
+      .notNull()
+      .references(() => doctorSlots.id, { onDelete: "restrict" }),
+
+    issue: text("issue").notNull(),
+    why: text("why"),
+
+    status: appointmentRequestStatusEnum("status")
+      .notNull()
+      .default("pending"),
+
+    appointmentId: uuid("appointment_id"),
+
+    cancelledReason: text("cancelled_reason"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    patientDoctorSlotUidx: uniqueIndex(
+      "appointment_requests_patient_doctor_slot_uidx"
+    ).on(table.patientId, table.doctorId, table.doctorSlotId),
+  })
+);
 
 /** Doctor visit notes shown on patient treatment history (per visit date). */
 export const visitNotes = pgTable("visit_notes", {
@@ -235,6 +325,13 @@ export const chatThreads = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Patient-only: hide messages at or before this time in the app. Rows stay in DB;
+     * clinic/dev tools still see full history.
+     */
+    patientClearedChatAt: timestamp("patient_cleared_chat_at", {
+      withTimezone: true,
+    }),
   }
 );
 

@@ -3,12 +3,22 @@ import Link from "next/link";
 import { Sparkles, User } from "lucide-react";
 import { DashboardNav } from "./dashboard-nav";
 import { LogoutButton } from "./logout-button";
+import { DashboardClinicSupportBell } from "@/components/dashboard/DashboardClinicSupportBell";
+import { getSessionUserId } from "@/src/lib/auth/get-session";
+import { markPastAppointmentsCompleted } from "@/src/lib/markPastAppointmentsCompleted";
+import { runAppointmentReminders } from "@/src/lib/runAppointmentReminders";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const userId = await getSessionUserId();
+  if (userId) {
+    await markPastAppointmentsCompleted();
+    await runAppointmentReminders();
+  }
+
   return (
     <div className="min-h-screen bg-[#FDF9F0]">
       {/* Premium Top Navbar */}
@@ -26,6 +36,7 @@ export default function DashboardLayout({
           <DashboardNav />
 
           <div className="flex items-center gap-2">
+            <DashboardClinicSupportBell />
             <Link
               href="/dashboard/profile"
               className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-teal-50 text-teal-600 transition-colors hover:bg-teal-100"

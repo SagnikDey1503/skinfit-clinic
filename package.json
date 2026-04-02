@@ -21,6 +21,7 @@
     "drizzle-orm": "^0.38.0",
     "framer-motion": "^12.34.0",
     "html2canvas": "^1.4.1",
+    "html2canvas-pro": "^1.6.7",
     "html2pdf.js": "^0.14.0",
     "jose": "^6.2.2",
     "jspdf": "^4.2.1",

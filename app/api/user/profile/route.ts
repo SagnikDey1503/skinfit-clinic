@@ -12,6 +12,11 @@ import {
   normalizeCountryCode,
   validateNationalPhone,
 } from "@/src/lib/auth/phone";
+import {
+  APPOINTMENT_REMINDER_HOURS_DEFAULT,
+  APPOINTMENT_REMINDER_HOURS_MAX,
+  APPOINTMENT_REMINDER_HOURS_MIN,
+} from "@/src/lib/appointmentReminder";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -48,6 +53,8 @@ export async function PATCH(req: Request) {
   let nextAge: number | null = user.age;
   let nextSkin: string | null = user.skinType;
   let nextGoal: string | null = user.primaryGoal;
+  let nextReminderHours =
+    user.appointmentReminderHoursBefore ?? APPOINTMENT_REMINDER_HOURS_DEFAULT;
 
   if (typeof body.name === "string") {
     const n = body.name.trim().slice(0, 255);
@@ -151,6 +158,29 @@ export async function PATCH(req: Request) {
     }
   }
 
+  if ("appointmentReminderHoursBefore" in body) {
+    const v = body.appointmentReminderHoursBefore;
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      return NextResponse.json(
+        { message: "Reminder hours must be a whole number." },
+        { status: 400 }
+      );
+    }
+    const n = Math.round(v);
+    if (
+      n < APPOINTMENT_REMINDER_HOURS_MIN ||
+      n > APPOINTMENT_REMINDER_HOURS_MAX
+    ) {
+      return NextResponse.json(
+        {
+          message: `Reminder lead time must be between ${APPOINTMENT_REMINDER_HOURS_MIN} (off) and ${APPOINTMENT_REMINDER_HOURS_MAX} hours.`,
+        },
+        { status: 400 }
+      );
+    }
+    nextReminderHours = n;
+  }
+
   const currentPassword =
     typeof body.currentPassword === "string" ? body.currentPassword : "";
   const newPassword =
@@ -198,6 +228,7 @@ export async function PATCH(req: Request) {
       age: nextAge,
       skinType: nextSkin,
       primaryGoal: nextGoal,
+      appointmentReminderHoursBefore: nextReminderHours,
       passwordHash: nextHash,
     })
     .where(eq(users.id, userId));
@@ -232,6 +263,7 @@ export async function PATCH(req: Request) {
       age: nextAge,
       skinType: nextSkin,
       primaryGoal: nextGoal,
+      appointmentReminderHoursBefore: nextReminderHours,
     },
   });
 }

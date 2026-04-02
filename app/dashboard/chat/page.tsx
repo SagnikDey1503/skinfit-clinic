@@ -1,17 +1,24 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   Search,
   Bot,
   User,
-  Phone,
-  Video,
   Paperclip,
   Send,
+  Eraser,
 } from "lucide-react";
+import {
+  CLINIC_SUPPORT_INBOX_EVENT,
+  CLINIC_SUPPORT_INBOX_REFRESH_EVENT,
+  getClinicSupportInboxLastSeenIso,
+  getDoctorInboxLastSeenIso,
+  markClinicSupportInboxSeenFromServer,
+  markDoctorInboxSeenFromServer,
+} from "@/src/lib/clinicSupportInboxClient";
 
 const contacts = [
   {
@@ -57,6 +64,10 @@ export default function ChatPage() {
   >({});
   const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
   const [typingIndex, setTypingIndex] = useState(0);
+  const [sidebarUnread, setSidebarUnread] = useState({ support: 0, doctor: 0 });
+
+  const activeAssistantRef = useRef<AssistantId>("ai");
+  activeAssistantRef.current = activeAssistant;
 
   const activeContact = useMemo(
     () => contacts.find((c) => c.id === activeAssistant)!,
@@ -64,7 +75,9 @@ export default function ChatPage() {
   );
 
   const fetchPlainMessages = useCallback(
-    async (assistantId: AssistantId): Promise<ChatMsg[]> => {
+    async (
+      assistantId: AssistantId
+    ): Promise<{ messages: ChatMsg[]; clinicReadThroughIso?: string }> => {
       const res = await fetch(
         `/api/chat/plain/messages?assistantId=${encodeURIComponent(
           assistantId
@@ -75,6 +88,7 @@ export default function ChatPage() {
       const data = (await res.json()) as {
         success?: boolean;
         error?: string;
+        clinicReadThroughIso?: string;
         messages?: Array<{
           id: string;
           sender: AssistantId | "patient";
@@ -88,12 +102,15 @@ export default function ChatPage() {
       }
 
       const rows = data.messages ?? [];
-      return rows.map((m) => ({
-        id: m.id,
-        sender: m.sender,
-        text: m.text,
-        createdAt: m.createdAt,
-      }));
+      return {
+        messages: rows.map((m) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          createdAt: m.createdAt,
+        })),
+        clinicReadThroughIso: data.clinicReadThroughIso,
+      };
     },
     []
   );
@@ -161,6 +178,55 @@ export default function ChatPage() {
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
   }
 
+  /** Full date + time for each bubble (when the message was sent). */
+  function formatMessageTimestamp(iso?: string) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  const refreshSidebarUnread = useCallback(async () => {
+    try {
+      const q = new URLSearchParams({
+        supportSince: getClinicSupportInboxLastSeenIso(),
+        doctorSince: getDoctorInboxLastSeenIso(),
+      });
+      const res = await fetch(`/api/chat/inbox/unread?${q.toString()}`, {
+        credentials: "include",
+      });
+      const data = (await res.json()) as {
+        success?: boolean;
+        supportCount?: number;
+        doctorCount?: number;
+      };
+      if (!res.ok || !data.success) return;
+      setSidebarUnread({
+        support: typeof data.supportCount === "number" ? data.supportCount : 0,
+        doctor: typeof data.doctorCount === "number" ? data.doctorCount : 0,
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSidebarUnread();
+    const t = setInterval(() => void refreshSidebarUnread(), 25_000);
+    const onInbox = () => void refreshSidebarUnread();
+    window.addEventListener(CLINIC_SUPPORT_INBOX_EVENT, onInbox);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(CLINIC_SUPPORT_INBOX_EVENT, onInbox);
+    };
+  }, [refreshSidebarUnread]);
+
   const loadContactPreviews = useCallback(async () => {
     const assistants: AssistantId[] = ["ai", "doctor", "support"];
     const next: Partial<Record<AssistantId, { snippet: string; time: string }>> = {};
@@ -168,7 +234,7 @@ export default function ChatPage() {
     await Promise.all(
       assistants.map(async (assistantId) => {
         try {
-          const plainMessages = await fetchPlainMessages(assistantId);
+          const { messages: plainMessages } = await fetchPlainMessages(assistantId);
           const last = plainMessages[plainMessages.length - 1];
           // For our UI: show snippet only if there's at least one message.
           next[assistantId] = last
@@ -185,6 +251,55 @@ export default function ChatPage() {
 
     setContactPreviews(next);
   }, [fetchPlainMessages]);
+
+  const clearClinicChatView = useCallback(async () => {
+    const aid = activeAssistant;
+    if (aid !== "support" && aid !== "doctor") return;
+    if (
+      !window.confirm(
+        "Hide all messages in this chat on your side? Nothing is deleted — the clinic still has the full history. New messages will show up as usual."
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/chat/plain/clear-view", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ assistantId: aid }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Could not clear view");
+      }
+      const { messages: next, clinicReadThroughIso } = await fetchPlainMessages(aid);
+      setMessages(next);
+      if (aid === "support") {
+        markClinicSupportInboxSeenFromServer(clinicReadThroughIso);
+      }
+      if (aid === "doctor") {
+        markDoctorInboxSeenFromServer(clinicReadThroughIso);
+      }
+      void loadContactPreviews();
+      void refreshSidebarUnread();
+      window.dispatchEvent(new Event(CLINIC_SUPPORT_INBOX_REFRESH_EVENT));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not clear view");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    activeAssistant,
+    fetchPlainMessages,
+    loadContactPreviews,
+    refreshSidebarUnread,
+  ]);
 
   // Typewriter effect for the latest assistant message (AI only).
   useEffect(() => {
@@ -245,6 +360,45 @@ export default function ChatPage() {
     void loadContactPreviews();
   }, [loadContactPreviews]);
 
+  /** Pre-visit reminders only run server-side unless something triggers them; chat is client-only. */
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/appointments/reminders/tick", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { ok?: boolean; sent?: number };
+        if (data.ok && (data.sent ?? 0) > 0) {
+          void loadContactPreviews();
+          void refreshSidebarUnread();
+          window.dispatchEvent(new Event(CLINIC_SUPPORT_INBOX_REFRESH_EVENT));
+          if (activeAssistantRef.current === "support") {
+            try {
+              const { messages: plain, clinicReadThroughIso } =
+                await fetchPlainMessages("support");
+              setMessages(plain);
+              markClinicSupportInboxSeenFromServer(clinicReadThroughIso);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [loadContactPreviews, refreshSidebarUnread, fetchPlainMessages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const a = new URLSearchParams(window.location.search).get("assistant");
+    if (a === "support" || a === "doctor" || a === "ai") {
+      setActiveAssistant(a);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -253,7 +407,7 @@ export default function ChatPage() {
       setIsLoading(true);
       setMessages([]);
       try {
-        const plainMessages = await fetchPlainMessages("ai");
+        const { messages: plainMessages } = await fetchPlainMessages("ai");
         if (cancelled) return;
 
         if (plainMessages.length === 0) {
@@ -264,7 +418,7 @@ export default function ChatPage() {
           await seedAssistantGreeting("ai", threadId, AI_GREETING);
           if (cancelled) return;
 
-          const seeded = await fetchPlainMessages("ai");
+          const { messages: seeded } = await fetchPlainMessages("ai");
           if (cancelled) return;
 
           setMessages(seeded);
@@ -290,9 +444,16 @@ export default function ChatPage() {
       setIsLoading(true);
       setMessages([]);
       try {
-        const plainMessages = await fetchPlainMessages(activeAssistant);
+        const { messages: plainMessages, clinicReadThroughIso } =
+          await fetchPlainMessages(activeAssistant);
         if (cancelled) return;
         setMessages(plainMessages);
+        if (activeAssistant === "support") {
+          markClinicSupportInboxSeenFromServer(clinicReadThroughIso);
+        }
+        if (activeAssistant === "doctor") {
+          markDoctorInboxSeenFromServer(clinicReadThroughIso);
+        }
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Failed to load messages.");
@@ -373,7 +534,7 @@ export default function ChatPage() {
         await seedAssistantGreeting("ai", storeData.threadId, reply);
 
         // 4) Reload from DB to ensure correct ordering/contents.
-        const refreshed = await fetchPlainMessages("ai");
+        const { messages: refreshed } = await fetchPlainMessages("ai");
         setMessages(refreshed);
         const lastAssistant = [...refreshed]
           .reverse()
@@ -407,8 +568,15 @@ export default function ChatPage() {
         throw new Error(data.error || `Failed to send message (${res.status})`);
       }
 
-      const refreshed = await fetchPlainMessages(activeAssistant);
+      const { messages: refreshed, clinicReadThroughIso } =
+        await fetchPlainMessages(activeAssistant);
       setMessages(refreshed);
+      if (activeAssistant === "support") {
+        markClinicSupportInboxSeenFromServer(clinicReadThroughIso);
+      }
+      if (activeAssistant === "doctor") {
+        markDoctorInboxSeenFromServer(clinicReadThroughIso);
+      }
       setInputValue("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send message.");
@@ -445,6 +613,12 @@ export default function ChatPage() {
         <div className="max-h-[240px] flex-1 overflow-y-auto md:max-h-none">
           {contacts.map((contact) => {
             const Icon = contact.icon;
+            const unreadN =
+              contact.id === "support"
+                ? sidebarUnread.support
+                : contact.id === "doctor"
+                  ? sidebarUnread.doctor
+                  : 0;
             return (
               <div
                 key={contact.id}
@@ -455,6 +629,11 @@ export default function ChatPage() {
               >
                 <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#E0F0ED]">
                   <Icon className="h-5 w-5 text-[#6B8E8E]" />
+                  {unreadN > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold leading-none text-white">
+                      {unreadN > 9 ? "9+" : unreadN}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-zinc-900">
@@ -496,6 +675,18 @@ export default function ChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {activeAssistant === "support" || activeAssistant === "doctor" ? (
+              <button
+                type="button"
+                title="Hide past messages on your screen only"
+                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+                disabled={isLoading}
+                onClick={() => void clearClinicChatView()}
+              >
+                <Eraser className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="hidden sm:inline">Clear my view</span>
+              </button>
+            ) : null}
             {activeAssistant === "ai" ? (
               <button
                 type="button"
@@ -506,7 +697,7 @@ export default function ChatPage() {
                   try {
                     const threadId = await createPlainThread("ai");
                     await seedAssistantGreeting("ai", threadId, AI_GREETING);
-                    const seeded = await fetchPlainMessages("ai");
+                    const { messages: seeded } = await fetchPlainMessages("ai");
                     setMessages(seeded);
                   } catch (e) {
                     setError(e instanceof Error ? e.message : "Failed to start new chat.");
@@ -519,49 +710,79 @@ export default function ChatPage() {
                 New chat
               </button>
             ) : null}
-            <button
-              type="button"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-teal-700"
-              title="Voice call"
-            >
-              <Phone className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-teal-700"
-              title="Video call"
-            >
-              <Video className="h-4 w-4" />
-            </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto bg-[#FDF9F0]/30 p-4 sm:p-6">
           <div className="flex flex-col gap-4">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${
-                  msg.sender === "patient" ? "justify-end" : "justify-start"
-                }`}
-              >
+            {messages.map((msg) => {
+              const ts =
+                formatMessageTimestamp(msg.createdAt) ||
+                (msg.sender === "patient" ? "Just now" : "");
+              return (
                 <div
-                  className={`max-w-[85%] px-4 py-2.5 sm:max-w-[80%] ${
-                    msg.sender === "patient"
-                      ? "rounded-l-2xl rounded-tr-2xl bg-teal-600 text-white"
-                      : "rounded-r-2xl rounded-tl-2xl border border-zinc-100 bg-white text-zinc-800 shadow-sm"
+                  key={msg.id}
+                  className={`flex ${
+                    msg.sender === "patient" ? "justify-end" : "justify-start"
                   }`}
                 >
-                  <div className="text-sm leading-relaxed">
-                    <ReactMarkdown skipHtml={true}>
-                      {typingMessageId === msg.id && msg.sender !== "patient"
-                        ? msg.text.slice(0, typingIndex || msg.text.length)
-                        : msg.text}
-                    </ReactMarkdown>
+                  <div
+                    className={`flex max-w-[85%] flex-col gap-1 sm:max-w-[80%] ${
+                      msg.sender === "patient" ? "items-end" : "items-start"
+                    }`}
+                  >
+                    <div
+                      className={`w-full px-4 py-2.5 ${
+                        msg.sender === "patient"
+                          ? "rounded-l-2xl rounded-tr-2xl bg-teal-600 text-white"
+                          : "rounded-r-2xl rounded-tl-2xl border border-zinc-100 bg-white text-zinc-800 shadow-sm"
+                      }`}
+                    >
+                      <div className="text-sm leading-relaxed [&_a]:break-words">
+                        <ReactMarkdown
+                          skipHtml={true}
+                          components={{
+                            a: ({ href, children, ...rest }) => (
+                              <a
+                                {...rest}
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={
+                                  msg.sender === "patient"
+                                    ? "font-semibold text-white underline decoration-white/90 underline-offset-2 hover:text-white"
+                                    : "font-semibold text-blue-600 underline decoration-blue-500/40 underline-offset-2 hover:text-blue-700"
+                                }
+                              >
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
+                          {typingMessageId === msg.id && msg.sender !== "patient"
+                            ? msg.text.slice(0, typingIndex || msg.text.length)
+                            : msg.text}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                    {ts ? (
+                      <time
+                        className="px-1 text-[11px] tabular-nums text-zinc-400"
+                        {...(msg.createdAt &&
+                        !Number.isNaN(Date.parse(msg.createdAt))
+                          ? {
+                              dateTime: msg.createdAt,
+                              title: msg.createdAt,
+                            }
+                          : {})}
+                      >
+                        {ts}
+                      </time>
+                    ) : null}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {isLoading && activeAssistant === "ai" ? (
               <div className="flex justify-start">

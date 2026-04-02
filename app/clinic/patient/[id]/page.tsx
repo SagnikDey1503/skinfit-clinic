@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 
 const DUMMY_PATIENT = {
-  name: "Sarah Jenkins",
+  name: "Demo Patient",
   age: 28,
   skinCode: "O.P.A.H",
   lastVisit: "2 days ago",

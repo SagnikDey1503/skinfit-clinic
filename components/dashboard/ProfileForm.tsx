@@ -3,6 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SessionUserProfile } from "@/src/lib/auth/get-session";
+import {
+  APPOINTMENT_REMINDER_HOURS_DEFAULT,
+  APPOINTMENT_REMINDER_HOURS_MAX,
+} from "@/src/lib/appointmentReminder";
 
 type Props = {
   initial: SessionUserProfile;
@@ -21,6 +25,11 @@ export function ProfileForm({ initial }: Props) {
   );
   const [skinType, setSkinType] = useState(initial.skinType ?? "");
   const [primaryGoal, setPrimaryGoal] = useState(initial.primaryGoal ?? "");
+  const [reminderHoursBefore, setReminderHoursBefore] = useState(
+    String(
+      initial.appointmentReminderHoursBefore ?? APPOINTMENT_REMINDER_HOURS_DEFAULT
+    )
+  );
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -63,6 +72,20 @@ export function ProfileForm({ initial }: Props) {
         body.age = n;
       }
 
+      const rh = Number.parseInt(reminderHoursBefore.trim(), 10);
+      if (
+        !Number.isFinite(rh) ||
+        rh < 0 ||
+        rh > APPOINTMENT_REMINDER_HOURS_MAX
+      ) {
+        setError(
+          `Reminder time must be 0 (off) or 1–${APPOINTMENT_REMINDER_HOURS_MAX} hours before your visit.`
+        );
+        setLoading(false);
+        return;
+      }
+      body.appointmentReminderHoursBefore = rh;
+
       if (newPassword || currentPassword) {
         body.currentPassword = currentPassword;
         body.newPassword = newPassword;
@@ -101,6 +124,9 @@ export function ProfileForm({ initial }: Props) {
       if (data.user?.primaryGoal === null) setPrimaryGoal("");
       else if (typeof data.user?.primaryGoal === "string")
         setPrimaryGoal(data.user.primaryGoal);
+      if (typeof data.user?.appointmentReminderHoursBefore === "number") {
+        setReminderHoursBefore(String(data.user.appointmentReminderHoursBefore));
+      }
       router.refresh();
       setTimeout(() => setSaved(false), 3000);
     } catch {
@@ -261,6 +287,44 @@ export function ProfileForm({ initial }: Props) {
               className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
             />
           </div>
+        </div>
+      </section>
+
+      <section className={card}>
+        <h2 className="text-lg font-bold text-zinc-900">Visit reminders</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          SkinnFit Clinic can send you a message in{" "}
+          <strong className="font-medium text-zinc-700">Clinic Support</strong>{" "}
+          chat before each confirmed appointment.
+        </p>
+        <div className="mt-6">
+          <label
+            htmlFor="pf-reminder-hours"
+            className="mb-1.5 block text-sm font-medium text-zinc-700"
+          >
+            Remind me how many hours before the visit?
+          </label>
+          <input
+            id="pf-reminder-hours"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={APPOINTMENT_REMINDER_HOURS_MAX}
+            value={reminderHoursBefore}
+            onChange={(e) => setReminderHoursBefore(e.target.value)}
+            disabled={loading}
+            className="w-full max-w-[12rem] rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
+          />
+          <p className="mt-2 text-xs text-zinc-500">
+            <span className="font-medium text-zinc-600">24</span> ≈ one day
+            before, <span className="font-medium text-zinc-600">48</span> ≈ two
+            days,             <span className="font-medium text-zinc-600">0</span> turns
+            reminders off. Maximum {APPOINTMENT_REMINDER_HOURS_MAX} hours (one
+            week). We check for due reminders when you open any dashboard page
+            (including Clinic Support chat) and about every 15 minutes in
+            production if your host supports cron (e.g. Vercel with{" "}
+            <span className="font-medium text-zinc-600">CRON_SECRET</span> set).
+          </p>
         </div>
       </section>
 

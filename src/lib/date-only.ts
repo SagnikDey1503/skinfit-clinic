@@ -39,3 +39,20 @@ export function ymdFromDateOnly(value: Date | string): string {
   }
   return value.toISOString().slice(0, 10);
 }
+
+/**
+ * Raw UTC calendar date + time from an instant (legacy / debugging).
+ * For booked visits, prefer `utcInstantToClinicWallYmdHm` from
+ * `clinicSlotUtcInstant.ts` when using `CLINIC_SLOT_UTC_OFFSET_MINUTES`.
+ */
+export function ymdAndHmFromUtcWallClock(dt: Date): {
+  ymd: string;
+  hm: string;
+} {
+  const y = dt.getUTCFullYear();
+  const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dt.getUTCDate()).padStart(2, "0");
+  const hh = String(dt.getUTCHours()).padStart(2, "0");
+  const mm = String(dt.getUTCMinutes()).padStart(2, "0");
+  return { ymd: `${y}-${mo}-${d}`, hm: `${hh}:${mm}` };
+}
