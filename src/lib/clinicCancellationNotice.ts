@@ -1,11 +1,10 @@
 import { formatSlotTimeRange } from "@/src/lib/slotTimeHm";
 
 /**
- * Patient-facing Clinic Support chat copy when the clinic cancels or declines
+ * Patient-facing Clinic Support chat when the clinic cancels or declines
  * an appointment request or revokes a confirmed booking.
- * Google Calendar removal hints are only appended when a **confirmed** visit is
- * cancelled (patient may have added the event). Declined pending requests do not
- * include that block.
+ * Google Calendar “remove event” hints apply only to **confirmed** visits
+ * (declined pending requests omit that block).
  */
 export type ClinicCancellationKind = "confirmed_visit" | "pending_request";
 
@@ -57,7 +56,6 @@ export function clinicCancellationChatMessage(params: {
     );
   }
 
-  // Declined pending request — patient typically has not added a calendar event yet.
   return `Your appointment request${whenPart} was not approved (**cancelled** by the clinic). **Reason:** **${reasonMd}** You can submit a new request for a different open slot anytime.`;
 }
 

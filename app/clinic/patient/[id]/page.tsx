@@ -50,8 +50,17 @@ const DUMMY_REPORTS = [
   { title: "Initial Consultation Notes", date: "January 10, 2026", type: "Clinical Note", size: "0.8 MB" },
 ];
 
+/** `dateYmd` / `timeHm` used for simple clash detection vs proposed schedule. */
 const UPCOMING_APPOINTMENTS = [
-  { id: 1, type: "Follow-up AI Scan", date: "March 15, 2026", time: "10:00 AM", status: "Confirmed" },
+  {
+    id: 1,
+    type: "Follow-up AI Scan",
+    dateYmd: "2026-03-15",
+    timeHm: "10:00",
+    date: "March 15, 2026",
+    time: "10:00 AM",
+    status: "Confirmed",
+  },
 ];
 
 const APPOINTMENT_TYPES = ["Follow-up", "Treatment", "Lab Work"] as const;
@@ -80,6 +89,7 @@ export default function PatientDetailPage({
   const [scheduleType, setScheduleType] = useState<string>("Follow-up");
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleClash, setScheduleClash] = useState<string | null>(null);
 
   const getAdherenceClass = (v: number) => {
     if (v >= 1) return "bg-teal-500";
@@ -324,18 +334,46 @@ export default function PatientDetailPage({
                   <input
                     type="date"
                     value={scheduleDate}
-                    onChange={(e) => setScheduleDate(e.target.value)}
+                    onChange={(e) => {
+                      setScheduleClash(null);
+                      setScheduleDate(e.target.value);
+                    }}
                     className="rounded-lg border border-zinc-700 bg-zinc-800/80 px-3 py-2 text-sm text-white focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30"
                   />
                   <input
                     type="time"
                     value={scheduleTime}
-                    onChange={(e) => setScheduleTime(e.target.value)}
+                    onChange={(e) => {
+                      setScheduleClash(null);
+                      setScheduleTime(e.target.value);
+                    }}
                     className="rounded-lg border border-zinc-700 bg-zinc-800/80 px-3 py-2 text-sm text-white focus:border-teal-500/50 focus:outline-none focus:ring-1 focus:ring-teal-500/30"
                   />
                 </div>
+                {scheduleClash ? (
+                  <p className="text-xs font-medium text-amber-400">{scheduleClash}</p>
+                ) : null}
                 <button
                   type="button"
+                  onClick={() => {
+                    setScheduleClash(null);
+                    if (!scheduleDate.trim() || !scheduleTime.trim()) {
+                      setScheduleClash("Choose a date and time first.");
+                      return;
+                    }
+                    const clash = UPCOMING_APPOINTMENTS.some(
+                      (a) =>
+                        a.dateYmd === scheduleDate.trim() &&
+                        a.timeHm === scheduleTime.trim()
+                    );
+                    if (clash) {
+                      setScheduleClash(
+                        "That slot clashes with an existing visit. Pick a different time."
+                      );
+                      return;
+                    }
+                    setScheduleClash(null);
+                  }}
                   className="w-full rounded-lg bg-teal-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-teal-400"
                 >
                   Send to Patient Calendar

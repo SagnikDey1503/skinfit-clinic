@@ -25,6 +25,7 @@ const APPOINTMENT_CONFIRM_EMAIL_SUBJECT = "SkinnFit Clinic — Appointment confi
 const APPOINTMENT_UPDATE_EMAIL_SUBJECT = "SkinnFit Clinic — Appointment update";
 import { CLINIC_DOCTOR_EMAIL } from "@/src/lib/clinicDoctor";
 import { slotDateAndHmToUtcInstant } from "@/src/lib/clinicSlotUtcInstant";
+import { doctorSlotOverlapsExisting } from "@/src/lib/doctorSlotOverlap";
 import { isValidSlotEndAfterStart } from "@/src/lib/slotTimeHm";
 
 const DEV_DOCTOR_EMAIL = CLINIC_DOCTOR_EMAIL;
@@ -155,6 +156,22 @@ export async function POST(req: Request) {
     const issue = input.issue ?? "Acne on cheeks";
     const why = input.why ?? "Been 2 weeks";
 
+    const seedEndHm =
+      parsedEnd.value === undefined ? null : parsedEnd.value;
+    const seedOverlaps = await doctorSlotOverlapsExisting({
+      doctorId,
+      slotDate,
+      slotTimeHm,
+      slotEndTimeHm: seedEndHm,
+      ignoreSlotStartHm: slotTimeHm,
+    });
+    if (seedOverlaps) {
+      return NextResponse.json(
+        { error: "SLOT_TIME_OVERLAP" },
+        { status: 409 }
+      );
+    }
+
     const seedConflictSet: { title: string; updatedAt: Date; slotEndTimeHm?: string | null } = {
       title,
       updatedAt: new Date(),
@@ -170,7 +187,7 @@ export async function POST(req: Request) {
         doctorId,
         slotDate,
         slotTimeHm,
-        slotEndTimeHm: parsedEnd.value === undefined ? null : parsedEnd.value,
+        slotEndTimeHm: seedEndHm,
         title,
       })
       .onConflictDoUpdate({
@@ -248,6 +265,22 @@ export async function POST(req: Request) {
 
     const title = input.title ?? "Consultation";
 
+    const upsertEndHm =
+      parsedEndUpsert.value === undefined ? null : parsedEndUpsert.value;
+    const upsertOverlaps = await doctorSlotOverlapsExisting({
+      doctorId,
+      slotDate,
+      slotTimeHm,
+      slotEndTimeHm: upsertEndHm,
+      ignoreSlotStartHm: slotTimeHm,
+    });
+    if (upsertOverlaps) {
+      return NextResponse.json(
+        { error: "SLOT_TIME_OVERLAP" },
+        { status: 409 }
+      );
+    }
+
     const upsertConflictSet: { title: string; updatedAt: Date; slotEndTimeHm?: string | null } = {
       title,
       updatedAt: new Date(),
@@ -262,7 +295,7 @@ export async function POST(req: Request) {
         doctorId,
         slotDate,
         slotTimeHm,
-        slotEndTimeHm: parsedEndUpsert.value === undefined ? null : parsedEndUpsert.value,
+        slotEndTimeHm: upsertEndHm,
         title,
       })
       .onConflictDoUpdate({

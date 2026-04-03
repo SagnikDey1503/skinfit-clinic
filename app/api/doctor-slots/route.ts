@@ -5,6 +5,7 @@ import { doctorSlots, users } from "@/src/db/schema";
 import { getSessionUserId } from "@/src/lib/auth/get-session";
 import { ymdHmStringsToUtcInstant } from "@/src/lib/clinicSlotUtcInstant";
 import { dateOnlyFromYmd, ymdFromDateOnly, parseYmdToDateOnly, localCalendarYmd } from "@/src/lib/date-only";
+import { doctorSlotOverlapsExisting } from "@/src/lib/doctorSlotOverlap";
 import { effectiveSlotEndHm, isValidSlotEndAfterStart } from "@/src/lib/slotTimeHm";
 
 const HM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -125,6 +126,20 @@ export async function POST(req: Request) {
   // Ensure doctor exists.
   const [doctor] = await db.select().from(users).where(eq(users.id, doctorId)).limit(1);
   if (!doctor) return NextResponse.json({ error: "DOCTOR_NOT_FOUND" }, { status: 404 });
+
+  const overlaps = await doctorSlotOverlapsExisting({
+    doctorId,
+    slotDate: slotDateDt,
+    slotTimeHm,
+    slotEndTimeHm: slotEndTimeHm === undefined ? null : slotEndTimeHm,
+    ignoreSlotStartHm: slotTimeHm,
+  });
+  if (overlaps) {
+    return NextResponse.json(
+      { error: "SLOT_TIME_OVERLAP" },
+      { status: 409 }
+    );
+  }
 
   const conflictSet: { title: string; updatedAt: Date; slotEndTimeHm?: string | null } = {
     title,
