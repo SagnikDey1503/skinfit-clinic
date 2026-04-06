@@ -1,11 +1,15 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import { Sun, Moon, SunMoon, ChevronsUp } from "lucide-react";
 import { normalizeRoutineSteps } from "@/src/lib/routine";
 import { analysisResultsToParams } from "@/src/lib/skinScanAnalysis";
+import {
+  DashboardDayQuestBanner,
+  DashboardSectionCountdown,
+} from "./DashboardDayQuest";
 import { DashboardJournal } from "./DashboardJournal";
 
 const PINK = "#F8A5B2";
@@ -150,6 +154,65 @@ export function DashboardView({
   const router = useRouter();
   const displayDate = format(new Date(), "dd/MM/yy");
 
+  /** Align today's log with the browser calendar (PATCH already uses this). Server SSR uses UTC on Vercel — sync fixes wrong row. */
+  type TodaySync = TodayJournalLog | "pending" | "error";
+  const [syncedTodayLog, setSyncedTodayLog] = useState<TodaySync>("pending");
+
+  useEffect(() => {
+    let cancelled = false;
+    const ymd = format(new Date(), "yyyy-MM-dd");
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/journal?date=${encodeURIComponent(ymd)}`,
+          { credentials: "include" }
+        );
+        if (!res.ok) {
+          if (!cancelled) setSyncedTodayLog("error");
+          return;
+        }
+        const data = (await res.json()) as {
+          entry: Record<string, unknown> | null;
+        };
+        if (cancelled) return;
+        const e = data.entry;
+        if (!e) {
+          setSyncedTodayLog(null);
+          return;
+        }
+        setSyncedTodayLog({
+          journalEntry:
+            typeof e.journalEntry === "string" ? e.journalEntry : null,
+          sleepHours: Number(e.sleepHours) || 0,
+          stressLevel:
+            typeof e.stressLevel === "number" ? e.stressLevel : 5,
+          waterGlasses: Number(e.waterGlasses) || 0,
+          mood: typeof e.mood === "string" ? e.mood : "Neutral",
+          amRoutine: Boolean(e.amRoutine),
+          pmRoutine: Boolean(e.pmRoutine),
+          routineAmSteps: Array.isArray(e.routineAmSteps)
+            ? (e.routineAmSteps as boolean[])
+            : null,
+          routinePmSteps: Array.isArray(e.routinePmSteps)
+            ? (e.routinePmSteps as boolean[])
+            : null,
+        });
+      } catch {
+        if (!cancelled) setSyncedTodayLog("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const effectiveTodayLog: TodayJournalLog =
+    syncedTodayLog === "pending" || syncedTodayLog === "error"
+      ? todayLog
+      : syncedTodayLog;
+
+  const routineCheckboxesLocked = syncedTodayLog === "pending";
+
   const [selectedScanIdx, setSelectedScanIdx] = useState(0);
   const scanIdsKey = useMemo(
     () => skinScanHistory.map((s) => s.id).join("|"),
@@ -184,10 +247,10 @@ export function DashboardView({
 
   const routineSourceKey = useMemo(
     () =>
-      `${JSON.stringify(todayLog?.routineAmSteps ?? null)}|${JSON.stringify(todayLog?.routinePmSteps ?? null)}|${amItems.length}|${pmItems.length}`,
+      `${JSON.stringify(effectiveTodayLog?.routineAmSteps ?? null)}|${JSON.stringify(effectiveTodayLog?.routinePmSteps ?? null)}|${amItems.length}|${pmItems.length}`,
     [
-      todayLog?.routineAmSteps,
-      todayLog?.routinePmSteps,
+      effectiveTodayLog?.routineAmSteps,
+      effectiveTodayLog?.routinePmSteps,
       amItems.length,
       pmItems.length,
     ]
@@ -211,12 +274,12 @@ export function DashboardView({
     setPrevRoutineKey(routineSourceKey);
     setRoutine({
       am: normalizeRoutineSteps(
-        todayLog?.routineAmSteps,
+        effectiveTodayLog?.routineAmSteps,
         amItems.length,
         undefined
       ),
       pm: normalizeRoutineSteps(
-        todayLog?.routinePmSteps,
+        effectiveTodayLog?.routinePmSteps,
         pmItems.length,
         undefined
       ),
@@ -225,25 +288,70 @@ export function DashboardView({
 
   const persistRoutine = useCallback(
     async (nextAm: boolean[], nextPm: boolean[]) => {
+      const ymd = format(new Date(), "yyyy-MM-dd");
       try {
         const res = await fetch("/api/journal", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
-            date: format(new Date(), "yyyy-MM-dd"),
+            date: ymd,
             routineAmSteps: nextAm,
             routinePmSteps: nextPm,
           }),
         });
-        if (!res.ok) router.refresh();
+        if (!res.ok) {
+          router.refresh();
+          return;
+        }
+        const data = (await res.json()) as {
+          ok?: boolean;
+          entry?: {
+            journalEntry: string | null;
+            sleepHours: number;
+            stressLevel: number;
+            waterGlasses: number;
+            mood: string;
+            amRoutine: boolean;
+            pmRoutine: boolean;
+            routineAmSteps: boolean[] | null;
+            routinePmSteps: boolean[] | null;
+          } | null;
+        };
+        if (data.entry) {
+          setSyncedTodayLog({
+            journalEntry: data.entry.journalEntry,
+            sleepHours: data.entry.sleepHours,
+            stressLevel: data.entry.stressLevel,
+            waterGlasses: data.entry.waterGlasses,
+            mood: data.entry.mood,
+            amRoutine: data.entry.amRoutine,
+            pmRoutine: data.entry.pmRoutine,
+            routineAmSteps: data.entry.routineAmSteps ?? null,
+            routinePmSteps: data.entry.routinePmSteps ?? null,
+          });
+          setRoutine({
+            am: normalizeRoutineSteps(
+              data.entry.routineAmSteps,
+              amItems.length,
+              undefined
+            ),
+            pm: normalizeRoutineSteps(
+              data.entry.routinePmSteps,
+              pmItems.length,
+              undefined
+            ),
+          });
+        }
       } catch {
         router.refresh();
       }
     },
-    [router]
+    [router, amItems.length, pmItems.length]
   );
 
   const toggleAm = (i: number) => {
+    if (routineCheckboxesLocked) return;
     setRoutine((r) => {
       const nextAm = r.am.map((v, j) => (j === i ? !v : v));
       const next = { am: nextAm, pm: r.pm };
@@ -253,6 +361,7 @@ export function DashboardView({
   };
 
   const togglePm = (i: number) => {
+    if (routineCheckboxesLocked) return;
     setRoutine((r) => {
       const nextPm = r.pm.map((v, j) => (j === i ? !v : v));
       const next = { am: r.am, pm: nextPm };
@@ -282,15 +391,25 @@ export function DashboardView({
         </div>
       </section>
 
+      <DashboardDayQuestBanner />
+
       {/* AM/PM Schedule */}
       <section
         className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
         style={{ boxShadow: "0 8px 30px rgba(0,0,0,0.06)" }}
       >
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-zinc-900">AM/PM Schedule</h2>
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <h2 className="text-lg font-bold text-zinc-900">AM/PM Schedule</h2>
+            <DashboardSectionCountdown />
+          </div>
           <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
         </div>
+        {routineCheckboxesLocked ? (
+          <p className="mb-3 text-xs font-medium text-zinc-500">
+            Loading today&apos;s routine for your time zone…
+          </p>
+        ) : null}
 
         <div className="relative grid min-h-[220px] grid-cols-2 gap-0">
           <div className="relative border-r border-zinc-200/90 pr-4 md:pr-8">
@@ -307,12 +426,14 @@ export function DashboardView({
                   <button
                     type="button"
                     onClick={() => toggleAm(i)}
-                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors"
+                    disabled={routineCheckboxesLocked}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:cursor-not-allowed disabled:opacity-45"
                     style={{
                       borderColor: TEAL,
                       backgroundColor: amDone[i] ? TEAL : "transparent",
                     }}
                     aria-pressed={amDone[i]}
+                    aria-busy={routineCheckboxesLocked}
                   >
                     {amDone[i] && (
                       <svg
@@ -348,13 +469,15 @@ export function DashboardView({
                   <button
                     type="button"
                     onClick={() => togglePm(i)}
-                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-zinc-300 bg-white transition-colors"
+                    disabled={routineCheckboxesLocked}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-zinc-300 bg-white transition-colors disabled:cursor-not-allowed disabled:opacity-45"
                     style={
                       pmDone[i]
                         ? { borderColor: TEAL, backgroundColor: TEAL }
                         : undefined
                     }
                     aria-pressed={pmDone[i]}
+                    aria-busy={routineCheckboxesLocked}
                   >
                     {pmDone[i] && (
                       <svg
@@ -389,9 +512,15 @@ export function DashboardView({
 
       {/* Daily Journal — title outside card */}
       <section>
-        <h2 className="mb-3 text-lg font-bold text-zinc-900">Daily Journal</h2>
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <h2 className="text-lg font-bold text-zinc-900">Daily Journal</h2>
+          <DashboardSectionCountdown />
+        </div>
         <div className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6">
-          <DashboardJournal todayLog={todayLog} />
+          <DashboardJournal
+            key={syncedTodayLog === "pending" ? "journal-hydrating" : "journal-ready"}
+            todayLog={effectiveTodayLog}
+          />
         </div>
       </section>
 

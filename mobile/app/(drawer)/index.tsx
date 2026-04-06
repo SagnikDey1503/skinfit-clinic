@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ApiError, apiJson } from "@/lib/api";
 import { analysisResultsToParams } from "@/lib/skinAnalysis";
 import { normalizeRoutineSteps } from "@/lib/routine";
+import { useEndOfDayCountdown } from "@/lib/useEndOfDayCountdown";
 
 const TEAL = "#6B8E8E";
 const MINT = "#E0F0ED";
@@ -77,9 +78,14 @@ export default function DashboardScreen() {
   const loadHome = useCallback(async () => {
     if (!token) return;
     setError(null);
-    const json = await apiJson<HomeData>(`/api/patient/home`, token, {
-      method: "GET",
-    });
+    const ymd = format(new Date(), "yyyy-MM-dd");
+    const json = await apiJson<HomeData>(
+      `/api/patient/home?date=${encodeURIComponent(ymd)}`,
+      token,
+      {
+        method: "GET",
+      }
+    );
     setData(json);
     setSelectedScanIdx(0);
     const am = normalizeRoutineSteps(
@@ -266,9 +272,14 @@ export default function DashboardScreen() {
         <Gauge label="Weekly Δ" value={data.weeklyChangePercent} />
       </View>
 
+      <DayQuestBannerMobile />
+
       <View style={[styles.card, { marginTop: 16 }]}>
         <View style={styles.rowBetween}>
-          <Text style={styles.h2}>AM / PM routine</Text>
+          <View style={{ flex: 1, marginRight: 8 }}>
+            <Text style={styles.h2}>AM / PM routine</Text>
+            <CountdownPillMobile />
+          </View>
           <Text style={styles.muted}>{format(new Date(), "dd/MM/yy")}</Text>
         </View>
         <View style={styles.routineRow}>
@@ -303,12 +314,16 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <Text style={[styles.h2, { marginTop: 20, marginBottom: 8 }]}>Daily journal</Text>
+      <View style={{ marginTop: 20, marginBottom: 8, gap: 8 }}>
+        <Text style={styles.h2}>Daily journal</Text>
+        <CountdownPillMobile />
+      </View>
       <View style={styles.card}>
         <Text style={styles.muted}>
           {journalDate === todayStr ? "Today" : format(parseISO(`${journalDate}T12:00:00`), "MMM d, yyyy")}
           {journalLoading ? " · Loading…" : ""}
         </Text>
+        {journalDate === todayStr ? <JournalTodayStripMobile /> : null}
         {journalHint ? <Text style={styles.warn}>{journalHint}</Text> : null}
         <View style={styles.journalGrid}>
           <Field label="Sleep (h)" value={sleep} onChangeText={setSleep} />
@@ -410,6 +425,73 @@ export default function DashboardScreen() {
         )}
       </View>
     </ScrollView>
+  );
+}
+
+function DayQuestBannerMobile() {
+  const cd = useEndOfDayCountdown();
+  return (
+    <View
+      style={[
+        styles.card,
+        styles.questCard,
+        cd.isLastHour && styles.questCardUrgent,
+      ]}
+    >
+      <Text style={styles.questKicker}>{"Today's quest"}</Text>
+      <Text style={styles.questTitle}>
+        Lock in routine &amp; journal before the day resets
+      </Text>
+      <Text style={styles.questSub}>
+        Counts until <Text style={styles.questBold}>11:59:59 PM</Text> local time
+      </Text>
+      <View style={styles.questBarBg}>
+        <View style={[styles.questBarFg, { width: `${cd.dayProgress * 100}%` }]} />
+      </View>
+      <Text
+        style={styles.questTimer}
+        accessibilityRole="text"
+        accessibilityLabel={`Time remaining until end of day: ${cd.formatted}`}
+      >
+        {cd.formatted}
+      </Text>
+      <Text style={styles.questHint}>Time left today</Text>
+      {cd.isLastHour ? (
+        <Text style={styles.questFinal}>Final hour — finish strong</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function CountdownPillMobile() {
+  const cd = useEndOfDayCountdown();
+  return (
+    <View
+      style={[styles.countPill, cd.isLastHour && styles.countPillUrgent]}
+      accessibilityRole="text"
+      accessibilityLabel={`Time left today until 11:59 PM: ${cd.formatted}`}
+    >
+      <Text style={styles.countPillText}>
+        <Text style={styles.countPillMono}>{cd.formatted}</Text>
+      </Text>
+    </View>
+  );
+}
+
+function JournalTodayStripMobile() {
+  const cd = useEndOfDayCountdown();
+  return (
+    <View
+      style={[styles.journalStrip, cd.isLastHour && styles.journalStripUrgent]}
+      accessibilityRole="text"
+    >
+      <Text style={styles.journalStripLeft}>
+        Closes at <Text style={styles.questBold}>11:59:59 PM</Text>
+      </Text>
+      <Text style={[styles.journalStripRight, cd.isLastHour && { color: "#b45309" }]}>
+        {cd.formatted} left
+      </Text>
+    </View>
   );
 }
 
@@ -533,4 +615,80 @@ const styles = StyleSheet.create({
   barFg: { height: 8, borderRadius: 4, backgroundColor: TEAL },
   feedback: { marginTop: 8, fontSize: 15, color: "#3f3f46", lineHeight: 22 },
   feedbackEmpty: { minHeight: 100, borderWidth: 1, borderStyle: "dashed", borderColor: "#e4e4e7", borderRadius: 14, marginTop: 8 },
+  questCard: {
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "rgba(251, 191, 36, 0.45)",
+    backgroundColor: "#fffbeb",
+  },
+  questCardUrgent: { borderColor: "rgba(245, 158, 11, 0.7)" },
+  questKicker: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 2,
+    color: "#92400e",
+    marginBottom: 6,
+  },
+  questTitle: { fontSize: 16, fontWeight: "700", color: "#18181b", marginBottom: 4 },
+  questSub: { fontSize: 12, color: "#52525b", marginBottom: 10 },
+  questBold: { fontWeight: "800", color: "#27272a" },
+  questBarBg: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(107,142,142,0.2)",
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  questBarFg: { height: 8, borderRadius: 4, backgroundColor: TEAL },
+  questTimer: {
+    fontSize: 28,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    color: "#18181b",
+    textAlign: "center",
+  },
+  questHint: { fontSize: 11, fontWeight: "600", color: "#71717a", textAlign: "center", marginTop: 2 },
+  questFinal: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#b45309",
+    textAlign: "center",
+  },
+  countPill: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(224, 240, 237, 0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(107,142,142,0.35)",
+  },
+  countPillUrgent: { backgroundColor: "#fff7ed", borderColor: "rgba(245, 158, 11, 0.5)" },
+  countPillText: { fontSize: 12, fontWeight: "600", color: "#134e4a" },
+  countPillMono: { fontVariant: ["tabular-nums"], fontWeight: "800" },
+  journalStrip: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(224, 240, 237, 0.45)",
+    borderWidth: 1,
+    borderColor: "rgba(107,142,142,0.25)",
+  },
+  journalStripUrgent: { backgroundColor: "#fffbeb", borderColor: "rgba(245, 158, 11, 0.35)" },
+  journalStripLeft: { fontSize: 13, fontWeight: "600", color: "#134e4a", flex: 1, minWidth: 140 },
+  journalStripRight: {
+    fontSize: 15,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    color: TEAL,
+  },
 });

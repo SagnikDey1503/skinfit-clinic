@@ -8,8 +8,6 @@ import {
   CalendarPlus,
   Clock,
   FileText,
-  File,
-  FileDown,
   Activity,
   ArrowUpRight,
   ArrowDownRight,
@@ -42,12 +40,6 @@ const DUMMY_PATIENT = {
 const DUMMY_ADHERENCE: number[] = [
   1, 1, 1, 0.5, 1, 1, 0, 1, 1, 1, 1, 1, 0.5, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1,
   0.5, 1, 1, 1, 1, 1,
-];
-
-const DUMMY_REPORTS = [
-  { title: "Full Facial AI Analysis", date: "March 1, 2026", type: "AI Scan", size: "2.4 MB" },
-  { title: "Blood Panel: Hormonal Acne", date: "February 15, 2026", type: "Lab Result", size: "1.1 MB" },
-  { title: "Initial Consultation Notes", date: "January 10, 2026", type: "Clinical Note", size: "0.8 MB" },
 ];
 
 /** `dateYmd` / `timeHm` used for simple clash detection vs proposed schedule. */
@@ -420,45 +412,6 @@ export default function PatientDetailPage({
                   Update Patient Plan
                 </button>
               </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Lab & Scan Reports */}
-        <section className="mt-6">
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-            <h2 className="mb-3 flex items-center gap-1.5 text-base font-semibold text-white">
-              <File className="h-4 w-4 text-teal-400" />
-              Lab & Scan Reports
-            </h2>
-            <div>
-              {DUMMY_REPORTS.map((report, i) => (
-                <div
-                  key={i}
-                  className={`flex flex-wrap items-center justify-between gap-3 py-3 ${i < DUMMY_REPORTS.length - 1 ? "border-b border-zinc-800" : ""}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <File className="h-4 w-4 shrink-0 text-zinc-500" />
-                    <div>
-                      <p className="text-sm font-medium text-white">{report.title}</p>
-                      <p className="text-[10px] text-zinc-500">{report.date}</p>
-                    </div>
-                  </div>
-                  <span className="rounded-full bg-teal-500/10 px-2.5 py-1 text-xs font-medium text-teal-400">
-                    {report.type}
-                  </span>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-zinc-500">{report.size}</span>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-transparent px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:border-teal-500/50 hover:text-teal-400"
-                    >
-                      <FileDown className="h-4 w-4" />
-                      Download PDF
-                    </button>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         </section>

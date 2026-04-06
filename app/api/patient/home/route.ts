@@ -3,7 +3,11 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/src/db";
 import { dailyLogs, skinScans } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
-import { dateOnlyFromYmd, localCalendarYmd } from "@/src/lib/date-only";
+import {
+  dateOnlyFromYmd,
+  localCalendarYmd,
+  parseYmdToDateOnly,
+} from "@/src/lib/date-only";
 import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "@/src/lib/routine";
 
 export async function GET(request: Request) {
@@ -12,7 +16,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const todayDateOnly = dateOnlyFromYmd(localCalendarYmd());
+  /** Browser must pass `?date=YYYY-MM-DD` (local calendar day). Server UTC "today" alone breaks Vercel/Render vs patient timezone. */
+  const { searchParams } = new URL(request.url);
+  const dateParam = searchParams.get("date");
+  const parsed = dateParam ? parseYmdToDateOnly(dateParam) : null;
+  const todayDateOnly = parsed
+    ? parsed
+    : dateOnlyFromYmd(localCalendarYmd());
   const [skinScanRows, todayLog] = await Promise.all([
     db.query.skinScans.findMany({
       where: eq(skinScans.userId, userId),

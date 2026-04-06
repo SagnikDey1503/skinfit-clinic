@@ -3,20 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { FileText, Sparkles, User, Trash2 } from "lucide-react";
+import { User, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { dateOnlyFromYmd } from "@/src/lib/date-only";
 import { useRouter } from "next/navigation";
-
-/** Demo lab rows until lab orders exist in the database. */
-const PLACEHOLDER_LAB_REPORTS: {
-  id: string;
-  title: string;
-  at: Date;
-}[] = [
-  { id: "lab-cbc", title: "Complete Blood Count", at: new Date("2025-10-01") },
-  { id: "lab-hormonal", title: "Hormonal Panel", at: new Date("2025-09-18") },
-];
 
 const CARD =
   "rounded-[22px] border border-zinc-100 bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6";
@@ -60,64 +50,10 @@ interface HistoryViewProps {
   patient: PatientInfo;
 }
 
-type ReportListItem =
-  | {
-      kind: "ai";
-      key: string;
-      scanId: number;
-      title: string;
-      dateLabel: string;
-      sortTime: number;
-      isTest: boolean;
-    }
-  | {
-      kind: "lab";
-      key: string;
-      title: string;
-      dateLabel: string;
-      sortTime: number;
-    };
-
-function buildLabAndScanReports(scans: ScanRecord[]): ReportListItem[] {
-  const fromScans: ReportListItem[] = scans.map((s) => {
-    const d = new Date(s.createdAt);
-    const rawName = s.scanName?.trim() ?? "";
-    const cleanedName = rawName
-      // Remove "AI skin scan – " prefix (and similar separators) from the UI.
-      .replace(/^ai\s*skin\s*scan\s*[–-]\s*/i, "")
-      .replace(/^ai\s*skin\s*analysis\s*$/i, "");
-    return {
-      kind: "ai",
-      key: `scan-${s.id}`,
-      scanId: s.id,
-      title: cleanedName ? `AI scan – ${cleanedName}` : "AI scan",
-      dateLabel: format(d, "MMM d, yyyy"),
-      sortTime: d.getTime(),
-      // This list is "Lab & Scan Reports" — show actions only for AI scans.
-      // Lab rows are static "Sample" entries and never get delete buttons.
-      isTest: true,
-    };
-  });
-  const fromLabs: ReportListItem[] = PLACEHOLDER_LAB_REPORTS.map((r) => ({
-    kind: "lab",
-    key: r.id,
-    title: r.title,
-    dateLabel: format(r.at, "MMM d, yyyy"),
-    sortTime: r.at.getTime(),
-  }));
-  return [...fromScans, ...fromLabs].sort((a, b) => b.sortTime - a.sortTime);
-}
-
 export function HistoryView({ scans, visitNotes, patient }: HistoryViewProps) {
-  const labAndScanReports = useMemo(
-    () => buildLabAndScanReports(scans),
-    [scans]
-  );
-
   const router = useRouter();
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [rowDeleteLoadingId, setRowDeleteLoadingId] = useState<number | null>(null);
 
   const testScansCount = useMemo(() => {
     return scans.filter((s) => {
@@ -161,48 +97,6 @@ export function HistoryView({ scans, visitNotes, patient }: HistoryViewProps) {
     } finally {
       setDeleteLoading(false);
     }
-  }
-
-  async function onDeleteScan(scanId: number) {
-    if (rowDeleteLoadingId != null) return;
-
-    const ok = window.confirm(
-      "Delete this scan from your history? This cannot be undone."
-    );
-    if (!ok) return;
-
-    setRowDeleteLoadingId(scanId);
-    setDeleteError(null);
-    try {
-      const res = await fetch("/api/scan/delete", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ scanId }),
-      });
-
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-      };
-
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `Delete failed (${res.status})`);
-      }
-
-      router.refresh();
-    } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "Failed to delete scan.");
-    } finally {
-      setRowDeleteLoadingId(null);
-    }
-  }
-
-  function onDownloadScanPdf(scanId: number) {
-    const url = `/dashboard/history/scans/${scanId}?download=1&autoclose=1`;
-    // Open in a new tab so the user doesn't stay on the report page.
-    // The report tab will auto-close after the PDF downloads.
-    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -411,76 +305,6 @@ export function HistoryView({ scans, visitNotes, patient }: HistoryViewProps) {
               No visit notes yet.
             </p>
           )}
-        </div>
-      </motion.section>
-
-      {/* Lab & Scan Reports */}
-      <motion.section
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3, duration: 0.5 }}
-        className={CARD}
-      >
-        <h3 className="mb-4 text-lg font-bold text-zinc-900">
-          Lab & Scan Reports
-        </h3>
-        <div className="space-y-3">
-          {labAndScanReports.map((report) => (
-            <div
-              key={report.key}
-              className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-zinc-200 bg-zinc-50/80 px-4 py-3 transition-colors hover:border-[#6B8E8E]/40 hover:bg-[#E0F0ED]/40"
-            >
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#E0F0ED]">
-                  {report.kind === "ai" ? (
-                    <Sparkles className="h-5 w-5 text-[#6B8E8E]" aria-hidden />
-                  ) : (
-                    <FileText className="h-5 w-5 text-[#6B8E8E]" aria-hidden />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-zinc-900">
-                    {report.title}
-                  </p>
-                  <p className="text-xs text-zinc-500">{report.dateLabel}</p>
-                </div>
-              </div>
-              {report.kind === "ai" ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onDownloadScanPdf(report.scanId)}
-                    className="flex h-9 items-center justify-center rounded-full border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
-                    title="Download PDF"
-                  >
-                    Download PDF
-                  </button>
-                  <Link
-                    href={`/dashboard/history/scans/${report.scanId}`}
-                    className="flex h-9 items-center justify-center rounded-full bg-teal-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-teal-500"
-                  >
-                    View details
-                  </Link>
-                  {report.isTest ? (
-                    <button
-                      type="button"
-                      onClick={() => void onDeleteScan(report.scanId)}
-                      disabled={rowDeleteLoadingId === report.scanId}
-                      className="flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-white text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      title="Delete this scan"
-                      aria-label="Delete scan"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </div>
-              ) : (
-                <span className="shrink-0 text-xs font-medium text-zinc-400">
-                  Sample
-                </span>
-              )}
-            </div>
-          ))}
         </div>
       </motion.section>
     </div>

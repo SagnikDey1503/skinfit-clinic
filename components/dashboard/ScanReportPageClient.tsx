@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import { SkinScanReportBody } from "./SkinScanReportBody";
 import type { ReportMetrics, ReportRegion } from "./scanReportTypes";
 
@@ -32,6 +34,10 @@ export function ScanReportPageClient({
   autoDownload = false,
   autoCloseAfterDownload = false,
 }: ScanReportPageClientProps) {
+  const router = useRouter();
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const scanDate = new Date(scanDateIso);
   const displayScanTitle = (() => {
     if (!scanTitle) return null;
@@ -42,6 +48,37 @@ export function ScanReportPageClient({
       .replace(/^ai\s*skin\s*analysis\s*$/i, "");
     return stripped || null;
   })();
+
+  async function handleDeleteScan() {
+    if (deleteBusy || scanId < 1) return;
+    const ok = window.confirm(
+      "Delete this scan from your history? This cannot be undone."
+    );
+    if (!ok) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/scan/delete", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ scanId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `Delete failed (${res.status})`);
+      }
+      router.push("/dashboard/history");
+      router.refresh();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete scan.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-4 pb-8">
@@ -54,6 +91,29 @@ export function ScanReportPageClient({
           Back to history
         </Link>
       </div>
+
+      {autoDownload && scanId > 0 ? (
+        <div className="rounded-2xl border border-red-200/90 bg-red-50/90 px-4 py-3 shadow-sm">
+          <p className="text-sm font-medium text-red-950">
+            This tab opened for your PDF download. You can remove this scan from
+            your history if you don&apos;t need it anymore.
+          </p>
+          {deleteError ? (
+            <p className="mt-2 text-xs font-medium text-red-800" role="alert">
+              {deleteError}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void handleDeleteScan()}
+            disabled={deleteBusy}
+            className="mt-3 inline-flex items-center gap-2 rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-800 shadow-sm transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+            {deleteBusy ? "Deleting…" : "Delete this scan"}
+          </button>
+        </div>
+      ) : null}
 
       <div>
         <h1 className="text-center text-xl font-bold tracking-tight text-zinc-900">
