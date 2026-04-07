@@ -48,3 +48,26 @@ body {
 .context-menu-fade-in {
   animation: context-menu-fade-in 0.15s ease-out;
 }
+
+/** Quest ring: checkmark pop (zoom out → zoom in) when AM/PM routine is complete */
+@keyframes quest-complete-check {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.5;
+  }
+  45% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+  72% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.quest-complete-check {
+  animation: quest-complete-check 0.9s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}

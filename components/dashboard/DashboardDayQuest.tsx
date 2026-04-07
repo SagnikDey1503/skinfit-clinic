@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Sparkles, Timer } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Sparkles, Timer } from "lucide-react";
 import { useEndOfDayCountdown } from "@/src/lib/useEndOfDayCountdown";
 
 const TEAL = "#6B8E8E";
@@ -17,37 +17,64 @@ function useClientMounted() {
   return mounted;
 }
 
-/** Hero gamification: day progress ring + time until 11:59:59 PM. */
-export function DashboardDayQuestBanner() {
+/** Hero gamification: AM/PM routine completion ring + time until 11:59:59 PM. */
+export function DashboardDayQuestBanner({
+  routineProgress,
+}: {
+  /** 0–1: completed AM/PM steps over total steps. */
+  routineProgress: number;
+}) {
   const mounted = useClientMounted();
   const cd = useEndOfDayCountdown();
   const R = 44;
   const C = 2 * Math.PI * R;
-  const offset = mounted ? C * (1 - cd.dayProgress) : C;
-  const showUrgent = mounted && cd.isLastHour;
+  const p = Math.min(1, Math.max(0, routineProgress));
+  const offset = C * (1 - p);
+  const routineComplete = Math.round(p * 100) >= 100;
+  const finalHour = mounted && cd.isLastHour;
+  const bannerUrgent = finalHour && !routineComplete;
+  const pctLabel = Math.round(p * 100);
+
+  const [checkAnimKey, setCheckAnimKey] = useState(0);
+  const wasCompleteRef = useRef(false);
+  useEffect(() => {
+    if (routineComplete && !wasCompleteRef.current) {
+      setCheckAnimKey((k) => k + 1);
+    }
+    wasCompleteRef.current = routineComplete;
+  }, [routineComplete]);
 
   const timeDisplay = mounted ? cd.formatted : "--:--:--";
 
   return (
     <section
-      className={`relative isolate overflow-hidden rounded-[22px] border border-amber-200/55 bg-[#fffbeb] p-5 text-zinc-950 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6 ${
-        showUrgent ? "ring-2 ring-amber-400/55" : ""
+      className={`relative isolate overflow-hidden rounded-[22px] border border-black bg-transparent p-5 text-zinc-950 md:p-6 ${
+        bannerUrgent ? "ring-2 ring-amber-500 ring-offset-2 ring-offset-transparent" : ""
       }`}
       aria-labelledby="day-quest-title"
     >
-      <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-pink-200/25 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-10 -left-10 h-36 w-36 rounded-full bg-teal-300/15 blur-2xl" />
-
       <div className="relative flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <div className="relative shrink-0" aria-hidden>
-            <svg width={108} height={108} className="-rotate-90">
+          <div
+            className="relative shrink-0"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pctLabel}
+            aria-label={
+              routineComplete
+                ? "All AM and PM routine steps completed today"
+                : `AM and PM routine: ${pctLabel}% of steps completed today`
+            }
+          >
+            <svg width={108} height={108} className="-rotate-90" aria-hidden>
               <circle
                 cx={54}
                 cy={54}
                 r={R}
                 fill="none"
-                stroke={RING_TRACK_PINK}
+                stroke={routineComplete ? TEAL : RING_TRACK_PINK}
+                strokeOpacity={routineComplete ? 0.35 : 1}
                 strokeWidth={8}
               />
               <circle
@@ -63,11 +90,22 @@ export function DashboardDayQuestBanner() {
                 className="transition-[stroke-dashoffset] duration-1000 ease-out"
               />
             </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Sparkles
-                className={`h-7 w-7 ${showUrgent ? "text-amber-600" : "text-teal-700"}`}
-                strokeWidth={2}
-              />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              {routineComplete ? (
+                <Check
+                  key={checkAnimKey}
+                  className="quest-complete-check h-9 w-9 text-teal-700"
+                  strokeWidth={2.5}
+                  aria-hidden
+                />
+              ) : (
+                <Sparkles
+                  key="progress"
+                  className={`h-7 w-7 ${bannerUrgent ? "text-amber-600" : "text-teal-700"}`}
+                  strokeWidth={2}
+                  aria-hidden
+                />
+              )}
             </div>
           </div>
           <div className="min-w-0 text-center sm:text-left">
@@ -100,7 +138,7 @@ export function DashboardDayQuestBanner() {
           <p className="mt-1 min-w-[9ch] text-center text-3xl font-bold tabular-nums tracking-tight text-zinc-950">
             {timeDisplay}
           </p>
-          {showUrgent ? (
+          {finalHour ? (
             <p className="mt-1 text-center text-xs font-semibold text-amber-700">
               Final hour — finish strong
             </p>
@@ -124,13 +162,11 @@ export function DashboardSectionCountdown() {
           ? `Time left today until 11:59 PM: ${cd.formatted}`
           : "Time left today until 11:59 PM"
       }
-      className={`inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm ${
-        urgent
-          ? "border-amber-300 bg-amber-50 text-amber-950"
-          : "border-teal-200/80 bg-teal-50/90 text-teal-950"
+      className={`inline-flex max-w-full items-center gap-2 rounded-full border border-black bg-transparent px-3 py-1.5 text-xs font-semibold text-zinc-950 shadow-sm ${
+        urgent ? "ring-1 ring-amber-400/60" : ""
       }`}
     >
-      <Timer className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+      <Timer className="h-3.5 w-3.5 shrink-0 text-zinc-950" aria-hidden />
       <span className="min-w-[7ch] tabular-nums">
         {mounted ? cd.formatted : "--:--:--"}
       </span>

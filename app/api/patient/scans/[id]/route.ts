@@ -4,6 +4,7 @@ import { db } from "@/src/db";
 import { scans, users } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
 import { parseScanRegions } from "@/src/lib/parseScanAnnotations";
+import { FACE_SCAN_CAPTURE_STEPS } from "@/src/lib/faceScanCaptures";
 import { patientScanImagePath } from "@/src/lib/patientScanImagePath";
 
 export async function GET(
@@ -40,6 +41,7 @@ export async function GET(
         aiSummary: true,
         annotations: true,
         createdAt: true,
+        faceCaptureImages: true,
       },
     }),
   ]);
@@ -50,6 +52,14 @@ export async function GET(
 
   const regions = parseScanRegions(row.annotations);
 
+  const faceCaptureGallery =
+    row.faceCaptureImages && row.faceCaptureImages.length === 5
+      ? row.faceCaptureImages.map((entry, i) => ({
+          label: FACE_SCAN_CAPTURE_STEPS[i]?.title ?? entry.label,
+          imageUrl: `${patientScanImagePath(row.id)}?i=${i}`,
+        }))
+      : undefined;
+
   return NextResponse.json({
     scanId: row.id,
     userName: user.name?.trim() || "there",
@@ -58,6 +68,7 @@ export async function GET(
     userSkinType: user.skinType?.trim() || "—",
     scanTitle: row.scanName,
     imageUrl: patientScanImagePath(row.id),
+    faceCaptureGallery,
     regions,
     metrics: {
       acne: row.acne,

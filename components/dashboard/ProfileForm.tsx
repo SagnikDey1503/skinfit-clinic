@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SessionUserProfile } from "@/src/lib/auth/get-session";
 import {
   APPOINTMENT_REMINDER_HOURS_DEFAULT,
@@ -30,12 +30,34 @@ export function ProfileForm({ initial }: Props) {
       initial.appointmentReminderHoursBefore ?? APPOINTMENT_REMINDER_HOURS_DEFAULT
     )
   );
+  const [timezone, setTimezone] = useState(initial.timezone ?? "Asia/Kolkata");
+  const [routineRemindersEnabled, setRoutineRemindersEnabled] = useState(
+    initial.routineRemindersEnabled ?? true
+  );
+  const [routineAmReminderHm, setRoutineAmReminderHm] = useState(
+    initial.routineAmReminderHm ?? "08:30"
+  );
+  const [routinePmReminderHm, setRoutinePmReminderHm] = useState(
+    initial.routinePmReminderHm ?? "22:00"
+  );
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setTimezone(initial.timezone ?? "Asia/Kolkata");
+    setRoutineRemindersEnabled(initial.routineRemindersEnabled ?? true);
+    setRoutineAmReminderHm(initial.routineAmReminderHm ?? "08:30");
+    setRoutinePmReminderHm(initial.routinePmReminderHm ?? "22:00");
+  }, [
+    initial.timezone,
+    initial.routineRemindersEnabled,
+    initial.routineAmReminderHm,
+    initial.routinePmReminderHm,
+  ]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -86,6 +108,11 @@ export function ProfileForm({ initial }: Props) {
       }
       body.appointmentReminderHoursBefore = rh;
 
+      body.timezone = timezone.trim() || "Asia/Kolkata";
+      body.routineRemindersEnabled = routineRemindersEnabled;
+      body.routineAmReminderHm = routineAmReminderHm;
+      body.routinePmReminderHm = routinePmReminderHm;
+
       if (newPassword || currentPassword) {
         body.currentPassword = currentPassword;
         body.newPassword = newPassword;
@@ -126,6 +153,16 @@ export function ProfileForm({ initial }: Props) {
         setPrimaryGoal(data.user.primaryGoal);
       if (typeof data.user?.appointmentReminderHoursBefore === "number") {
         setReminderHoursBefore(String(data.user.appointmentReminderHoursBefore));
+      }
+      if (typeof data.user?.timezone === "string") setTimezone(data.user.timezone);
+      if (typeof data.user?.routineRemindersEnabled === "boolean") {
+        setRoutineRemindersEnabled(data.user.routineRemindersEnabled);
+      }
+      if (typeof data.user?.routineAmReminderHm === "string") {
+        setRoutineAmReminderHm(data.user.routineAmReminderHm);
+      }
+      if (typeof data.user?.routinePmReminderHm === "string") {
+        setRoutinePmReminderHm(data.user.routinePmReminderHm);
       }
       router.refresh();
       setTimeout(() => setSaved(false), 3000);
@@ -315,16 +352,99 @@ export function ProfileForm({ initial }: Props) {
             disabled={loading}
             className="w-full max-w-[12rem] rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
           />
-          <p className="mt-2 text-xs text-zinc-500">
-            <span className="font-medium text-zinc-600">24</span> ≈ one day
-            before, <span className="font-medium text-zinc-600">48</span> ≈ two
-            days,             <span className="font-medium text-zinc-600">0</span> turns
-            reminders off. Maximum {APPOINTMENT_REMINDER_HOURS_MAX} hours (one
-            week). We check for due reminders when you open any dashboard page
-            (including Clinic Support chat) and about every 15 minutes in
-            production if your host supports cron (e.g. Vercel with{" "}
-            <span className="font-medium text-zinc-600">CRON_SECRET</span> set).
-          </p>
+        </div>
+      </section>
+
+      <section className={card}>
+        <h2 className="text-lg font-bold text-zinc-900">Daily routine reminders</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          SkinnFit Clinic can message you in{" "}
+          <strong className="font-medium text-zinc-700">Clinic Support</strong>{" "}
+          if your AM or PM checklist still has steps left that day. Times use
+          your timezone below.
+        </p>
+        <div className="mt-6 space-y-4">
+          <label className="flex cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-zinc-300 text-[#6B8E8E] focus:ring-[#6B8E8E]"
+              checked={routineRemindersEnabled}
+              onChange={(e) => setRoutineRemindersEnabled(e.target.checked)}
+              disabled={loading}
+            />
+            <span className="text-sm font-medium text-zinc-800">
+              Enable AM / PM routine reminders
+            </span>
+          </label>
+          <div>
+            <label
+              htmlFor="pf-tz"
+              className="mb-1.5 block text-sm font-medium text-zinc-700"
+            >
+              Timezone (IANA)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="pf-tz"
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                disabled={loading}
+                placeholder="e.g. Asia/Kolkata"
+                className="min-w-[12rem] flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  try {
+                    setTimezone(
+                      Intl.DateTimeFormat().resolvedOptions().timeZone
+                    );
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 disabled:opacity-60"
+              >
+                Use this device
+              </button>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="pf-am-rem"
+                className="mb-1.5 block text-sm font-medium text-zinc-700"
+              >
+                Morning reminder
+              </label>
+              <input
+                id="pf-am-rem"
+                type="time"
+                value={routineAmReminderHm}
+                onChange={(e) => setRoutineAmReminderHm(e.target.value)}
+                disabled={loading || !routineRemindersEnabled}
+                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="pf-pm-rem"
+                className="mb-1.5 block text-sm font-medium text-zinc-700"
+              >
+                Evening reminder
+              </label>
+              <input
+                id="pf-pm-rem"
+                type="time"
+                value={routinePmReminderHm}
+                onChange={(e) => setRoutinePmReminderHm(e.target.value)}
+                disabled={loading || !routineRemindersEnabled}
+                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 outline-none focus:border-[#6B8E8E] focus:ring-2 focus:ring-[#6B8E8E]/20"
+              />
+            </div>
+          </div>
         </div>
       </section>
 

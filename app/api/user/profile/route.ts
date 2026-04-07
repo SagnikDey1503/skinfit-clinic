@@ -20,6 +20,10 @@ import {
   APPOINTMENT_REMINDER_HOURS_MAX,
   APPOINTMENT_REMINDER_HOURS_MIN,
 } from "@/src/lib/appointmentReminder";
+import {
+  isValidHm,
+  normalizeIanaTimeZone,
+} from "@/src/lib/timeZoneWallClock";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -66,6 +70,12 @@ export async function PATCH(req: Request) {
   let nextGoal: string | null = user.primaryGoal;
   let nextReminderHours =
     user.appointmentReminderHoursBefore ?? APPOINTMENT_REMINDER_HOURS_DEFAULT;
+  let nextTimezone = normalizeIanaTimeZone(user.timezone ?? "Asia/Kolkata");
+  let nextRoutineRemindersEnabled = user.routineRemindersEnabled ?? true;
+  let nextRoutineAmHm = user.routineAmReminderHm ?? "08:30";
+  let nextRoutinePmHm = user.routinePmReminderHm ?? "22:00";
+  let resetAmLastSent = false;
+  let resetPmLastSent = false;
 
   if (typeof body.name === "string") {
     const n = body.name.trim().slice(0, 255);
@@ -192,6 +202,65 @@ export async function PATCH(req: Request) {
     nextReminderHours = n;
   }
 
+  if ("timezone" in body) {
+    if (typeof body.timezone !== "string") {
+      return NextResponse.json(
+        { message: "Invalid timezone." },
+        { status: 400 }
+      );
+    }
+    const t = normalizeIanaTimeZone(body.timezone);
+    if (t !== nextTimezone) {
+      nextTimezone = t;
+      resetAmLastSent = true;
+      resetPmLastSent = true;
+    }
+  }
+
+  if ("routineRemindersEnabled" in body) {
+    if (typeof body.routineRemindersEnabled !== "boolean") {
+      return NextResponse.json(
+        { message: "Invalid routine reminders setting." },
+        { status: 400 }
+      );
+    }
+    nextRoutineRemindersEnabled = body.routineRemindersEnabled;
+  }
+
+  if ("routineAmReminderHm" in body) {
+    if (
+      typeof body.routineAmReminderHm !== "string" ||
+      !isValidHm(body.routineAmReminderHm)
+    ) {
+      return NextResponse.json(
+        { message: "AM reminder time must be HH:mm in 24-hour format." },
+        { status: 400 }
+      );
+    }
+    const v = body.routineAmReminderHm.trim();
+    if (v !== nextRoutineAmHm) {
+      nextRoutineAmHm = v;
+      resetAmLastSent = true;
+    }
+  }
+
+  if ("routinePmReminderHm" in body) {
+    if (
+      typeof body.routinePmReminderHm !== "string" ||
+      !isValidHm(body.routinePmReminderHm)
+    ) {
+      return NextResponse.json(
+        { message: "PM reminder time must be HH:mm in 24-hour format." },
+        { status: 400 }
+      );
+    }
+    const v = body.routinePmReminderHm.trim();
+    if (v !== nextRoutinePmHm) {
+      nextRoutinePmHm = v;
+      resetPmLastSent = true;
+    }
+  }
+
   const currentPassword =
     typeof body.currentPassword === "string" ? body.currentPassword : "";
   const newPassword =
@@ -240,6 +309,16 @@ export async function PATCH(req: Request) {
       skinType: nextSkin,
       primaryGoal: nextGoal,
       appointmentReminderHoursBefore: nextReminderHours,
+      timezone: nextTimezone,
+      routineRemindersEnabled: nextRoutineRemindersEnabled,
+      routineAmReminderHm: nextRoutineAmHm,
+      routinePmReminderHm: nextRoutinePmHm,
+      routineAmReminderLastSentYmd: resetAmLastSent
+        ? null
+        : user.routineAmReminderLastSentYmd,
+      routinePmReminderLastSentYmd: resetPmLastSent
+        ? null
+        : user.routinePmReminderLastSentYmd,
       passwordHash: nextHash,
     })
     .where(eq(users.id, userId));
@@ -276,6 +355,10 @@ export async function PATCH(req: Request) {
       skinType: nextSkin,
       primaryGoal: nextGoal,
       appointmentReminderHoursBefore: nextReminderHours,
+      timezone: nextTimezone,
+      routineRemindersEnabled: nextRoutineRemindersEnabled,
+      routineAmReminderHm: nextRoutineAmHm,
+      routinePmReminderHm: nextRoutinePmHm,
     },
     ...(nativeClient ? { token } : {}),
   });

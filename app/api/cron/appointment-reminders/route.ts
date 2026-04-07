@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { markPastAppointmentsCompleted } from "@/src/lib/markPastAppointmentsCompleted";
 import { runAppointmentReminders } from "@/src/lib/runAppointmentReminders";
+import { runRoutineReminders } from "@/src/lib/runRoutineReminders";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,13 @@ export async function GET(req: Request) {
 
   try {
     await markPastAppointmentsCompleted();
-    const result = await runAppointmentReminders();
-    return NextResponse.json({ ok: true, ...result });
+    const appointments = await runAppointmentReminders();
+    const routine = await runRoutineReminders();
+    return NextResponse.json({
+      ok: true,
+      appointments,
+      routine,
+    });
   } catch (e) {
     console.error("appointment-reminders cron", e);
     return NextResponse.json({ error: "CRON_FAILED" }, { status: 500 });

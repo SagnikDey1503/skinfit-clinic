@@ -14,7 +14,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiError, apiJson } from "@/lib/api";
 import { analysisResultsToParams } from "@/lib/skinAnalysis";
-import { normalizeRoutineSteps } from "@/lib/routine";
+import { normalizeRoutineSteps, routineStepsProgress } from "@/lib/routine";
 import { useEndOfDayCountdown } from "@/lib/useEndOfDayCountdown";
 
 const TEAL = "#6B8E8E";
@@ -213,6 +213,11 @@ export default function DashboardScreen() {
     });
   }
 
+  const routineProgress = useMemo(
+    () => routineStepsProgress(routine.am, routine.pm),
+    [routine.am, routine.pm]
+  );
+
   async function saveJournal() {
     if (!token) return;
     setJournalSaving(true);
@@ -272,7 +277,7 @@ export default function DashboardScreen() {
         <Gauge label="Weekly Δ" value={data.weeklyChangePercent} />
       </View>
 
-      <DayQuestBannerMobile />
+      <DayQuestBannerMobile routineProgress={routineProgress} />
 
       <View style={[styles.card, { marginTop: 16 }]}>
         <View style={styles.rowBetween}>
@@ -428,8 +433,13 @@ export default function DashboardScreen() {
   );
 }
 
-function DayQuestBannerMobile() {
+function DayQuestBannerMobile({
+  routineProgress,
+}: {
+  routineProgress: number;
+}) {
   const cd = useEndOfDayCountdown();
+  const p = Math.min(1, Math.max(0, routineProgress));
   return (
     <View
       style={[
@@ -437,6 +447,9 @@ function DayQuestBannerMobile() {
         styles.questCard,
         cd.isLastHour && styles.questCardUrgent,
       ]}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 1, now: p }}
+      accessibilityLabel={`AM and PM routine: ${Math.round(p * 100)} percent of steps completed today`}
     >
       <Text style={styles.questKicker}>{"Today's quest"}</Text>
       <Text style={styles.questTitle}>
@@ -446,7 +459,7 @@ function DayQuestBannerMobile() {
         Counts until <Text style={styles.questBold}>11:59:59 PM</Text> local time
       </Text>
       <View style={styles.questBarBg}>
-        <View style={[styles.questBarFg, { width: `${cd.dayProgress * 100}%` }]} />
+        <View style={[styles.questBarFg, { width: `${p * 100}%` }]} />
       </View>
       <Text
         style={styles.questTimer}

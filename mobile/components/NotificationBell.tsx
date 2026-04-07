@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { apiJson } from "@/lib/api";
@@ -39,11 +39,18 @@ export function NotificationBell() {
     }
   }, [token]);
 
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void load();
+    });
+    return () => sub.remove();
+  }, [load]);
+
   useFocusEffect(
     useCallback(() => {
       void load();
       const unsub = subscribeInboxReadCursors(() => void load());
-      const id = setInterval(() => void load(), 45000);
+      const id = setInterval(() => void load(), 15_000);
       return () => {
         clearInterval(id);
         unsub();

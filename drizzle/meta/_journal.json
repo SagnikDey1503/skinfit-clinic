@@ -57,6 +57,13 @@
       "when": 1775500000000,
       "tag": "0007_expo_push_token",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775600000000,
+      "tag": "0009_face_capture_images",
+      "breakpoints": true
     }
   ]
 }

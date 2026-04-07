@@ -46,20 +46,6 @@ import {
   WEEK_OPTS,
 } from "@/lib/schedulesCalendar";
 
-type PriorityReminderRow = {
-  id: string;
-  title: string;
-  priority: "high" | "medium" | "low";
-  sortOrder: number;
-};
-
-type CompletedReminderHistoryRow = {
-  id: string;
-  title: string;
-  priority: "high" | "medium" | "low";
-  completedAtIso: string;
-};
-
 type DoctorRow = { id: string; name: string; email: string };
 
 function chunkWeeks<T>(cells: T[]): T[][] {
@@ -78,8 +64,6 @@ export default function SchedulesScreen() {
   const [view, setView] = useState<"month" | "week">("month");
   const [currentDate, setCurrentDate] = useState(() => new Date());
 
-  const [activeReminders, setActiveReminders] = useState<PriorityReminderRow[]>([]);
-  const [completedHistory, setCompletedHistory] = useState<CompletedReminderHistoryRow[]>([]);
   const [scheduleEvents, setScheduleEvents] = useState<ScheduleEventRow[]>([]);
   const [doctors, setDoctors] = useState<DoctorRow[]>([]);
   const [doctorId, setDoctorId] = useState<string | null>(null);
@@ -111,12 +95,8 @@ export default function SchedulesScreen() {
   const loadBootstrap = useCallback(async () => {
     if (!token) return;
     const json = await apiJson<{
-      initialActiveReminders: PriorityReminderRow[];
-      initialCompletedHistory: CompletedReminderHistoryRow[];
       initialScheduleEvents: ScheduleEventRow[];
     }>("/api/patient/schedules", token, { method: "GET" });
-    setActiveReminders(json.initialActiveReminders);
-    setCompletedHistory(json.initialCompletedHistory);
     setScheduleEvents(json.initialScheduleEvents);
   }, [token]);
 
@@ -200,19 +180,6 @@ export default function SchedulesScreen() {
         : eventsInWeek(scheduleEvents, currentDate),
     [view, scheduleEvents, currentDate]
   );
-
-  async function toggleReminder(id: string, completed: boolean) {
-    if (!token) return;
-    try {
-      await apiJson("/api/reminders", token, {
-        method: "PATCH",
-        body: JSON.stringify({ id, completed }),
-      });
-      await loadBootstrap();
-    } catch {
-      Alert.alert("Reminders", "Could not update.");
-    }
-  }
 
   async function submitRequest() {
     if (!token || !doctorId || !requestSlot) return;
@@ -623,7 +590,7 @@ export default function SchedulesScreen() {
     );
   }
 
-  if (loading && activeReminders.length === 0 && scheduleEvents.length === 0) {
+  if (loading && scheduleEvents.length === 0) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
@@ -670,41 +637,7 @@ export default function SchedulesScreen() {
       </View>
 
       {tab === "mine" ? (
-        <>
-          <Text style={styles.section}>Priority reminders</Text>
-          {activeReminders.length === 0 ? (
-            <Text style={styles.muted}>No active reminders.</Text>
-          ) : (
-            activeReminders.map((r) => (
-              <View key={r.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowTitle}>{r.title}</Text>
-                  <Text style={styles.pill}>{r.priority}</Text>
-                </View>
-                <Pressable style={styles.doneBtn} onPress={() => toggleReminder(r.id, true)}>
-                  <Text style={styles.doneBtnText}>Done</Text>
-                </Pressable>
-              </View>
-            ))
-          )}
-
-          {completedHistory.length > 0 ? (
-            <>
-              <Text style={[styles.section, { marginTop: 20 }]}>Recently completed</Text>
-              {completedHistory.slice(0, 8).map((h) => (
-                <View key={h.id} style={styles.doneRow}>
-                  <Text style={styles.rowTitle}>{h.title}</Text>
-                  <Text style={styles.muted}>{new Date(h.completedAtIso).toLocaleString()}</Text>
-                  <Pressable onPress={() => toggleReminder(h.id, false)}>
-                    <Text style={styles.undo}>Undo</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </>
-          ) : null}
-
-          {renderCalendarGrid()}
-        </>
+        <>{renderCalendarGrid()}</>
       ) : (
         <>{renderCalendarGrid()}</>
       )}
@@ -753,32 +686,8 @@ const styles = StyleSheet.create({
   tabOn: { backgroundColor: "#ccfbf1" },
   tabText: { fontWeight: "600", color: "#52525b" },
   tabTextOn: { fontWeight: "700", color: "#0f766e" },
-  section: { fontSize: 17, fontWeight: "700", marginBottom: 10, color: "#18181b" },
   muted: { color: "#71717a", fontSize: 14, marginBottom: 8 },
   mutedCenter: { color: "#71717a", fontSize: 14, textAlign: "center", paddingVertical: 8 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    padding: 14,
-    borderRadius: 14,
-    marginBottom: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e4e4e7",
-  },
-  rowTitle: { fontSize: 16, fontWeight: "600", color: "#18181b" },
-  pill: { fontSize: 12, color: "#0d9488", marginTop: 4, textTransform: "capitalize" },
-  doneBtn: { backgroundColor: "#0d9488", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  doneBtnText: { color: "#fff", fontWeight: "600" },
-  doneRow: {
-    backgroundColor: "#fafafa",
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e4e4e7",
-  },
-  undo: { color: "#0d9488", fontWeight: "600", marginTop: 6 },
   calCard: {
     marginTop: 20,
     borderRadius: 22,

@@ -58,6 +58,13 @@ export type SessionUserProfile = {
   primaryGoal: string | null;
   /** Hours before a visit to receive a Clinic Support chat reminder; 0 = off. */
   appointmentReminderHoursBefore: number;
+  /** IANA timezone for routine reminder clock times. */
+  timezone: string;
+  /** AM/PM routine nudges via Clinic Support chat. */
+  routineRemindersEnabled: boolean;
+  /** Local times `HH:mm` (24h). */
+  routineAmReminderHm: string;
+  routinePmReminderHm: string;
 };
 
 async function sessionUserProfileById(
@@ -74,6 +81,10 @@ async function sessionUserProfileById(
       skinType: users.skinType,
       primaryGoal: users.primaryGoal,
       appointmentReminderHoursBefore: users.appointmentReminderHoursBefore,
+      timezone: users.timezone,
+      routineRemindersEnabled: users.routineRemindersEnabled,
+      routineAmReminderHm: users.routineAmReminderHm,
+      routinePmReminderHm: users.routinePmReminderHm,
     })
     .from(users)
     .where(eq(users.id, id))

@@ -4,6 +4,7 @@
  */
 export type WebFormData = {
   get(name: string): File | string | null;
+  getAll(name: string): (File | string)[];
 };
 
 export async function readWebFormData(req: Request): Promise<WebFormData> {

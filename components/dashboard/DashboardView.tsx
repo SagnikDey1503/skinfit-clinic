@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import { Sun, Moon, SunMoon, ChevronsUp } from "lucide-react";
-import { normalizeRoutineSteps } from "@/src/lib/routine";
+import { normalizeRoutineSteps, routineStepsProgress } from "@/src/lib/routine";
 import { analysisResultsToParams } from "@/src/lib/skinScanAnalysis";
 import {
   DashboardDayQuestBanner,
@@ -373,6 +373,11 @@ export function DashboardView({
   const amDone = routine.am;
   const pmDone = routine.pm;
 
+  const routineProgress = useMemo(
+    () => routineStepsProgress(routine.am, routine.pm),
+    [routine.am, routine.pm]
+  );
+
   return (
     <div className="space-y-6 text-zinc-900">
       {/* Title + gauges */}
@@ -391,7 +396,7 @@ export function DashboardView({
         </div>
       </section>
 
-      <DashboardDayQuestBanner />
+      <DashboardDayQuestBanner routineProgress={routineProgress} />
 
       {/* AM/PM Schedule */}
       <section

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Mail, Share2, X } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
@@ -23,6 +23,10 @@ const BEIGE = "#F5F1E9";
 const TEAL_BAND = "#E0EEEB";
 const PEACH = "#F29C91";
 const BTN = "#6D8C8E";
+
+/** Same frame for all 5 face captures (2 + 3 rows). */
+const FACE_CAPTURE_FRAME =
+  "relative mx-auto aspect-[3/4] w-[72px] overflow-hidden rounded-xl bg-zinc-200/80 ring-1 ring-[rgba(0,0,0,0.1)] sm:w-[88px] md:w-[96px]";
 
 const LOREM_PROFILE =
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.";
@@ -99,24 +103,41 @@ function Donut({
   );
 }
 
-const TREATMENT_IMAGES = [
-  "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=280&h=400&fit=crop&q=85",
-  "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=280&h=400&fit=crop&q=85",
-  "https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=280&h=400&fit=crop&q=85",
-  "https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=280&h=400&fit=crop&q=85",
+/** Screen-only thumbnails; PDF lists `href` text only (inside reportRef). */
+const RECOMMENDED_VIDEOS: { label: string; href: string; thumb: string }[] = [
+  {
+    label: "Routine basics",
+    href: "https://www.youtube.com/watch?v=placeholder1",
+    thumb:
+      "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=280&h=400&fit=crop&q=85",
+  },
+  {
+    label: "Hydration tips",
+    href: "https://www.youtube.com/watch?v=placeholder2",
+    thumb:
+      "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=280&h=400&fit=crop&q=85",
+  },
+  {
+    label: "Barrier care",
+    href: "https://www.youtube.com/watch?v=placeholder3",
+    thumb:
+      "https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=280&h=400&fit=crop&q=85",
+  },
+  {
+    label: "Sun protection",
+    href: "https://www.youtube.com/watch?v=placeholder4",
+    thumb:
+      "https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=280&h=400&fit=crop&q=85",
+  },
 ];
-
-function shortenUrl(url: string, maxLen = 38) {
-  const s = url.trim();
-  if (s.length <= maxLen) return s;
-  return `${s.slice(0, maxLen - 1)}…`;
-}
 
 export interface SkinScanReportBodyProps {
   userName: string;
   age?: number;
   skinType?: string;
   imageUrl: string;
+  /** Multi–face-capture scans: show every pose below the hero (included in PDF). */
+  faceCaptureGallery?: Array<{ label: string; imageUrl: string }>;
   regions: ReportRegion[];
   metrics: ReportMetrics;
   aiSummary?: string;
@@ -137,7 +158,8 @@ export function SkinScanReportBody({
   age = 18,
   skinType = "Dry",
   imageUrl,
-  regions,
+  faceCaptureGallery,
+  regions: _regions,
   metrics,
   aiSummary,
   scanDate,
@@ -158,6 +180,19 @@ export function SkinScanReportBody({
   const [shareDone, setShareDone] = useState(false);
   const overall = clamp(metrics.overall_score);
   const lastScanLabel = formatDistanceToNow(scanDate, { addSuffix: true });
+
+  const resolvedPhotos = useMemo(() => {
+    if (faceCaptureGallery && faceCaptureGallery.length > 0) {
+      return faceCaptureGallery;
+    }
+    if (imageUrl?.trim()) {
+      return [{ label: "Primary scan", imageUrl: imageUrl }];
+    }
+    return [];
+  }, [faceCaptureGallery, imageUrl]);
+
+  const row2Photos = resolvedPhotos.slice(0, 2);
+  const row3Photos = resolvedPhotos.slice(2, 5);
 
   const handleDownloadPdf = useCallback(async () => {
     const el = reportRef.current;
@@ -272,10 +307,11 @@ export function SkinScanReportBody({
     return () => window.cancelAnimationFrame(t);
   }, [autoDownload, handleDownloadPdf]);
 
-  const faceImgCrossOrigin =
-    imageUrl.startsWith("http://") || imageUrl.startsWith("https://")
+  function galleryImgCrossOrigin(u: string) {
+    return u.startsWith("http://") || u.startsWith("https://")
       ? ("anonymous" as const)
       : undefined;
+  }
 
   return (
     <div className={`relative w-full max-w-3xl ${className}`}>
@@ -388,86 +424,109 @@ export function SkinScanReportBody({
           `,
       }}
     >
-      {/* PDF / email: hero + Overview/Causes only (see data-pdf-section). Treatment videos & Book stay on-screen only. */}
+      {/* PDF §1: 2 + 3 face images | §2: details, progress, overview + YouTube links (no video thumbnails in PDF) */}
       <div ref={reportRef} className="relative w-full">
-      <div data-pdf-section className="relative w-full">
+      <div data-pdf-section className="relative w-full break-inside-avoid">
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-white to-transparent"
         aria-hidden
       />
 
-      <div className="relative px-5 pb-16 pt-9 sm:px-9 sm:pb-20">
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_auto_1fr] lg:items-start lg:gap-5">
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.06, duration: 0.4, ease: easeOut }}
-            className="max-w-md pr-0 lg:pr-5"
-          >
-            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
-              AI scan report
-            </p>
-            <h2
-              id="scan-report-title"
-              className={`${serif.className} mt-2 text-[2rem] font-medium leading-[1.15] tracking-[-0.02em] text-zinc-900 sm:text-[2.35rem]`}
-            >
-              Hello {userName}
-            </h2>
-            <p className="mt-4 text-[13px] font-medium tracking-wide text-zinc-600">
-              Age: {age}yrs
-              <span className="mx-2.5 inline-block h-0.5 w-0.5 rounded-full bg-zinc-400 align-middle" />
-              Skin type: {skinType}
-            </p>
-            <p className="mt-5 text-[14px] leading-[1.7] text-zinc-600">
-              {LOREM_PROFILE}
-            </p>
-          </motion.div>
+      <div className="relative px-5 pb-10 pt-9 sm:px-9 sm:pb-12">
+        <p className="text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+          Face captures
+        </p>
+        {row2Photos.length > 0 ? (
+          <div className="mx-auto mt-5 grid w-full max-w-md grid-cols-2 justify-items-center gap-x-6 gap-y-3 sm:max-w-lg sm:gap-x-8">
+            {row2Photos.map((item, idx) => (
+              <figure
+                key={`r2-${idx}-${item.label}`}
+                className="flex w-full max-w-[120px] flex-col items-center gap-1.5 sm:max-w-[130px]"
+              >
+                <div className={FACE_CAPTURE_FRAME}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={item.imageUrl}
+                    alt={item.label}
+                    className="h-full w-full object-cover object-center"
+                    crossOrigin={galleryImgCrossOrigin(item.imageUrl)}
+                  />
+                </div>
+                <figcaption className="line-clamp-2 w-full text-center text-[9px] font-medium leading-tight text-zinc-600">
+                  {item.label}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : null}
+        {row3Photos.length > 0 ? (
+          <div className="mx-auto mt-4 grid w-full max-w-md grid-cols-3 justify-items-center gap-x-2 gap-y-3 sm:mt-5 sm:max-w-lg sm:gap-x-4">
+            {row3Photos.map((item, idx) => (
+              <figure
+                key={`r3-${idx}-${item.label}`}
+                className="flex w-full max-w-[120px] flex-col items-center gap-1.5 sm:max-w-[130px]"
+              >
+                <div className={FACE_CAPTURE_FRAME}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={item.imageUrl}
+                    alt={item.label}
+                    className="h-full w-full object-cover object-center"
+                    crossOrigin={galleryImgCrossOrigin(item.imageUrl)}
+                  />
+                </div>
+                <figcaption className="line-clamp-2 w-full text-center text-[9px] font-medium leading-tight text-zinc-600">
+                  {item.label}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : null}
+        {resolvedPhotos.length === 0 ? (
+          <p className="mt-6 text-center text-sm text-zinc-500">
+            No face capture images for this scan.
+          </p>
+        ) : null}
+      </div>
+      </div>
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.1, duration: 0.45, ease: easeOut }}
-            className="relative mx-auto flex w-full max-w-[220px] justify-center sm:max-w-[260px]"
+      <div
+        data-pdf-section
+        data-pdf-page-break-before="true"
+        className="relative w-full min-w-0 max-w-full break-inside-avoid overflow-x-clip px-5 pb-10 pt-6 sm:px-9 sm:pt-8"
+      >
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.06, duration: 0.4, ease: easeOut }}
+          className="w-full max-w-xl"
+        >
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
+            AI scan report
+          </p>
+          <h2
+            id="scan-report-title"
+            className={`${serif.className} mt-2 text-[2rem] font-medium leading-[1.15] tracking-[-0.02em] text-zinc-900 sm:text-[2.35rem]`}
           >
-            <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[18px] bg-zinc-200 ring-1 ring-[rgba(0,0,0,0.18)] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.18),0_8px_16px_-6px_rgba(0,0,0,0.08)]">
-              <div
-                className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-t from-black via-transparent to-white"
-                aria-hidden
-              />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageUrl}
-                alt="Your scan"
-                className="h-full w-full object-cover"
-                crossOrigin={faceImgCrossOrigin}
-              />
-              {regions.map((region, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, scale: 0.5 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{
-                    delay: 0.3 + i * 0.05,
-                    duration: 0.35,
-                    ease: easeOut,
-                  }}
-                  className="absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-white shadow-[0_2px_8px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.04)]"
-                  style={{
-                    left: `${region.coordinates.x}%`,
-                    top: `${region.coordinates.y}%`,
-                  }}
-                  title={region.issue}
-                />
-              ))}
-            </div>
-          </motion.div>
+            Hello {userName}
+          </h2>
+          <p className="mt-4 text-[13px] font-medium tracking-wide text-zinc-600">
+            Age: {age}yrs
+            <span className="mx-2.5 inline-block h-0.5 w-0.5 rounded-full bg-zinc-400 align-middle" />
+            Skin type: {skinType}
+          </p>
+          <p className="mt-5 text-[14px] leading-[1.7] text-zinc-600">
+            {LOREM_PROFILE}
+          </p>
+        </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.12, duration: 0.4, ease: easeOut }}
-            className="flex flex-col gap-6 lg:items-end lg:pl-2"
-          >
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.4, ease: easeOut }}
+          className="mx-auto mt-8 w-full min-w-0 max-w-full"
+        >
+          <div className="grid w-full min-w-0 grid-cols-3 gap-1.5 sm:max-w-xl sm:gap-2.5 md:mx-auto md:max-w-[560px] md:gap-3">
             {[
               {
                 label: "Acne",
@@ -490,119 +549,141 @@ export function SkinScanReportBody({
             ].map((row) => (
               <div
                 key={row.label}
-                className="flex w-full max-w-[210px] items-center justify-between gap-3 rounded-2xl border border-white bg-white px-3 py-2.5 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] backdrop-blur-[2px] lg:w-[210px]"
+                className="flex min-w-0 max-w-full flex-col items-center gap-1 rounded-xl border border-white bg-white px-1 py-2 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] backdrop-blur-[2px] sm:flex-row sm:items-center sm:justify-between sm:gap-1 sm:rounded-2xl sm:px-2 sm:py-2.5 md:gap-2 md:px-2.5"
               >
-                <span className="text-[13px] font-semibold tracking-tight text-zinc-700">
+                <span className="line-clamp-2 w-full min-w-0 text-center text-[9px] font-semibold leading-tight tracking-tight text-zinc-700 sm:line-clamp-1 sm:w-auto sm:truncate sm:text-left sm:text-[11px] md:text-[12px]">
                   {row.label}
                 </span>
-                <div className="flex items-center gap-2.5">
-                  <Donut
-                    percent={row.value}
-                    size={54}
-                    stroke={5}
-                    color={row.fill}
-                    track={row.track}
-                  />
-                  <span className="w-11 text-right text-[13px] font-semibold tabular-nums tracking-tight text-zinc-800">
+                <div className="flex shrink-0 items-center gap-0.5 sm:gap-1.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center sm:h-10 sm:w-10">
+                    <div className="origin-center scale-[0.82] sm:scale-100">
+                      <Donut
+                        percent={row.value}
+                        size={40}
+                        stroke={4.5}
+                        color={row.fill}
+                        track={row.track}
+                      />
+                    </div>
+                  </div>
+                  <span className="w-7 shrink-0 text-right text-[9px] font-semibold tabular-nums tracking-tight text-zinc-800 sm:w-9 sm:text-[11px] md:w-10 md:text-[12px]">
                     {clamp(row.value)}%
                   </span>
                 </div>
               </div>
             ))}
-          </motion.div>
-        </div>
-      </div>
-      </div>
-
-      {/* Own PDF section so html2canvas slices never cut through the score card (short single capture). */}
-      <div
-        data-pdf-section
-        className="relative z-10 -mt-[4.5rem] flex w-full justify-center px-5 sm:-mt-24 sm:px-9"
-      >
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.18, duration: 0.45, ease: easeOut }}
-          className="w-[calc(100%-0.5rem)] max-w-lg rounded-[20px] border border-white bg-white px-5 py-6 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12),0_8px_16px_-4px_rgba(0,0,0,0.06)] backdrop-blur-sm sm:px-9 sm:py-7"
-        >
-          <div className="flex flex-col items-stretch gap-5 sm:flex-row sm:items-center sm:gap-8">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                Your Skin Health
-              </p>
-              <p
-                className={`${serif.className} mt-1 text-[2.75rem] font-medium leading-none tracking-[-0.03em] sm:text-[3.25rem]`}
-                style={{ color: PEACH }}
-              >
-                {overall}%
-              </p>
-              <p className="mt-2 text-[12px] font-medium text-zinc-500">
-                Last scan: {lastScanLabel}
-              </p>
-            </div>
-            <div
-              className="hidden h-[4.5rem] w-px shrink-0 bg-gradient-to-b from-transparent via-zinc-200 to-transparent sm:block"
-              aria-hidden
-            />
-            <div className="flex flex-1 justify-center sm:justify-end">
-              <div className="rounded-full p-1 shadow-[0_4px_14px_rgba(242,156,145,0.25)] ring-1 ring-[rgba(0,0,0,0.18)]">
-                <Donut
-                  percent={overall}
-                  size={104}
-                  stroke={9}
-                  color={PEACH}
-                  track="#F0E4E1"
-                  gradientId="donut-peach-main"
-                />
-              </div>
-            </div>
           </div>
         </motion.div>
+
+        <div className="relative z-10 mx-auto mt-8 flex w-full min-w-0 max-w-lg justify-center sm:mt-10">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.18, duration: 0.45, ease: easeOut }}
+            className="w-full min-w-0 max-w-full rounded-[20px] border border-white bg-white px-4 py-6 shadow-[0_24px_48px_-12px_rgba(0,0,0,0.12),0_8px_16px_-4px_rgba(0,0,0,0.06)] backdrop-blur-sm sm:px-9 sm:py-7"
+          >
+            <div className="flex min-w-0 max-w-full flex-col items-stretch gap-5 sm:flex-row sm:items-center sm:gap-6 md:gap-8">
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                  Your Skin Health
+                </p>
+                <p
+                  className={`${serif.className} mt-1 max-w-full text-[2.25rem] font-medium leading-none tracking-[-0.03em] sm:text-[2.75rem] md:text-[3.25rem]`}
+                  style={{ color: PEACH }}
+                >
+                  {overall}%
+                </p>
+                <p className="mt-2 text-[12px] font-medium text-zinc-500">
+                  Last scan: {lastScanLabel}
+                </p>
+              </div>
+              <div
+                className="hidden h-[4.5rem] w-px shrink-0 bg-gradient-to-b from-transparent via-zinc-200 to-transparent sm:block"
+                aria-hidden
+              />
+              <div className="flex min-w-0 flex-1 justify-center sm:justify-end">
+                <div className="rounded-full p-0.5 shadow-[0_4px_14px_rgba(242,156,145,0.25)] ring-1 ring-[rgba(0,0,0,0.18)] sm:p-1">
+                  <div className="flex h-[88px] w-[88px] shrink-0 items-center justify-center sm:h-auto sm:w-auto">
+                    <div className="origin-center scale-[0.85] sm:scale-100">
+                      <Donut
+                        percent={overall}
+                        size={104}
+                        stroke={9}
+                        color={PEACH}
+                        track="#F0E4E1"
+                        gradientId="donut-peach-main"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        <div
+          className="relative mt-12 break-inside-avoid border-t border-white px-0 py-10 sm:mt-14 sm:py-12"
+          style={{
+            background: `linear-gradient(180deg, ${TEAL_BAND} 0%, #d8ebe6 100%)`,
+          }}
+        >
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent"
+            aria-hidden
+          />
+          <div className="mx-auto grid max-w-3xl grid-cols-1 gap-10 md:grid-cols-2 md:gap-12">
+            <div className="relative md:pr-10 md:after:absolute md:after:right-0 md:after:top-0 md:after:h-full md:after:w-px md:after:bg-gradient-to-b md:after:from-zinc-400 md:after:via-zinc-400 md:after:to-zinc-400">
+              <div className="mb-4 h-px w-8 rounded-full bg-zinc-800" aria-hidden />
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-800">
+                Overview
+              </h3>
+              <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
+                {aiSummary?.trim() ||
+                  "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early."}
+              </p>
+              <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
+                {OVERVIEW_P2}
+              </p>
+            </div>
+            <div>
+              <div className="mb-4 h-px w-8 rounded-full bg-zinc-800" aria-hidden />
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-800">
+                Causes/Challenges
+              </h3>
+              <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
+                {CAUSES_P1}
+              </p>
+              <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
+                {CAUSES_P2}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div
         data-pdf-section
-        className="relative mt-16 border-t border-white px-5 py-12 sm:px-9 sm:py-14"
-        style={{
-          background: `linear-gradient(180deg, ${TEAL_BAND} 0%, #d8ebe6 100%)`,
-        }}
+        data-pdf-page-break-before="true"
+        className="relative w-full min-w-0 max-w-full break-inside-avoid overflow-x-clip px-5 pb-10 pt-6 sm:px-9"
       >
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent"
-          aria-hidden
-        />
-        <div className="mx-auto grid max-w-3xl grid-cols-1 gap-10 md:grid-cols-2 md:gap-12">
-          <div className="relative md:pr-10 md:after:absolute md:after:right-0 md:after:top-0 md:after:h-full md:after:w-px md:after:bg-gradient-to-b md:after:from-zinc-400 md:after:via-zinc-400 md:after:to-zinc-400">
-            <div className="mb-4 h-px w-8 rounded-full bg-zinc-800" aria-hidden />
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-800">
-              Overview
-            </h3>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
-              {aiSummary?.trim() ||
-                "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early."}
-            </p>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
-              {OVERVIEW_P2}
-            </p>
-          </div>
-          <div>
-            <div className="mb-4 h-px w-8 rounded-full bg-zinc-800" aria-hidden />
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-800">
-              Causes/Challenges
-            </h3>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
-              {CAUSES_P1}
-            </p>
-            <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
-              {CAUSES_P2}
-            </p>
-          </div>
+        <div className="rounded-xl border border-zinc-200/80 bg-white/80 px-4 py-4 sm:px-5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-800">
+            Recommended videos
+          </p>
+          <ul className="mt-3 space-y-2.5 text-[11px] leading-snug text-zinc-700">
+            {RECOMMENDED_VIDEOS.map((v) => (
+              <li key={v.href}>
+                <span className="font-semibold text-zinc-800">{v.label}: </span>
+                <span className="break-all text-zinc-600">{v.href}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
       </div>
 
       <div
-        className="relative px-5 pb-10 pt-14 sm:px-9"
+        className="relative px-5 pb-10 pt-4 sm:px-9"
         style={{ backgroundColor: BEIGE }}
       >
         <div
@@ -610,53 +691,41 @@ export function SkinScanReportBody({
           aria-hidden
         />
         <h3 className="text-center text-[10px] font-bold uppercase tracking-[0.28em] text-zinc-800">
-          Treatment videos
+          Recommended videos
         </h3>
-        <div className="mx-auto mt-8 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          {TREATMENT_IMAGES.map((src, i) => {
-            if (autoDownload) {
-              // In the PDF we don't want to rely on remote image loading.
-              return (
-                <div
-                  key={i}
-                  className="rounded-[14px] border border-white bg-white/60 px-3 py-3 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.08)]"
-                >
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    Video {i + 1}
-                  </p>
-                  <p
-                    className="mt-2 break-all text-[11px] font-medium text-zinc-700"
-                    title={src}
-                  >
-                    {shortenUrl(src)}
-                  </p>
-                </div>
-              );
-            }
-
-            return (
+        <div className="mx-auto mt-6 grid max-w-3xl grid-cols-2 gap-3 sm:mt-8 sm:grid-cols-4 sm:gap-4">
+          {RECOMMENDED_VIDEOS.map((v, i) => (
+            <Link
+              key={v.href}
+              href={v.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group block"
+            >
               <motion.div
-                key={i}
                 initial={{ opacity: 0, y: 8 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-40px" }}
                 transition={{ delay: i * 0.06, duration: 0.4, ease: easeOut }}
-                className="group relative aspect-[3/5] overflow-hidden rounded-[14px] bg-zinc-200 ring-1 ring-[rgba(0,0,0,0,0.18)] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.12)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_32px_-8px_rgba(0,0,0,0.15)]"
+                className="relative aspect-[3/5] overflow-hidden rounded-[14px] bg-zinc-200 ring-1 ring-[rgba(0,0,0,0.18)] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.12)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_32px_-8px_rgba(0,0,0,0.15)]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={src}
+                  src={v.thumb}
                   alt=""
                   className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
                   crossOrigin="anonymous"
                 />
                 <div
-                  className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-0 transition group-hover:opacity-100"
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"
                   aria-hidden
                 />
+                <p className="absolute inset-x-0 bottom-0 p-2 text-center text-[10px] font-semibold leading-tight text-white">
+                  {v.label}
+                </p>
               </motion.div>
-            );
-          })}
+            </Link>
+          ))}
         </div>
       </div>
 

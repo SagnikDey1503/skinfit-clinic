@@ -8,7 +8,6 @@ import { DashboardClinicSupportBell } from "@/components/dashboard/DashboardClin
 import { getSessionUserId } from "@/src/lib/auth/get-session";
 import { markPastAppointmentsCompleted } from "@/src/lib/markPastAppointmentsCompleted";
 import { runAppointmentReminders } from "@/src/lib/runAppointmentReminders";
-
 export default async function DashboardLayout({
   children,
 }: {

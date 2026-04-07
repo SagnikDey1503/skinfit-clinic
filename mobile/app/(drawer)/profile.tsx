@@ -5,6 +5,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -30,6 +31,10 @@ type ProfileUser = {
   skinType: string | null;
   primaryGoal: string | null;
   appointmentReminderHoursBefore: number;
+  timezone: string;
+  routineRemindersEnabled: boolean;
+  routineAmReminderHm: string;
+  routinePmReminderHm: string;
 };
 
 export default function ProfileScreen() {
@@ -44,6 +49,10 @@ export default function ProfileScreen() {
   const [skinType, setSkinType] = useState("");
   const [primaryGoal, setPrimaryGoal] = useState("");
   const [reminderHours, setReminderHours] = useState(String(REMINDER_DEFAULT));
+  const [timezone, setTimezone] = useState("Asia/Kolkata");
+  const [routineRemindersEnabled, setRoutineRemindersEnabled] = useState(true);
+  const [routineAmHm, setRoutineAmHm] = useState("08:30");
+  const [routinePmHm, setRoutinePmHm] = useState("22:00");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -65,6 +74,10 @@ export default function ProfileScreen() {
       setSkinType(user.skinType ?? "");
       setPrimaryGoal(user.primaryGoal ?? "");
       setReminderHours(String(user.appointmentReminderHoursBefore ?? REMINDER_DEFAULT));
+      setTimezone(user.timezone ?? "Asia/Kolkata");
+      setRoutineRemindersEnabled(user.routineRemindersEnabled ?? true);
+      setRoutineAmHm(user.routineAmReminderHm ?? "08:30");
+      setRoutinePmHm(user.routinePmReminderHm ?? "22:00");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load profile.");
     } finally {
@@ -105,6 +118,13 @@ export default function ProfileScreen() {
 
     setSaving(true);
     try {
+      const hmOk = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      if (!hmOk.test(routineAmHm.trim()) || !hmOk.test(routinePmHm.trim())) {
+        setError("Routine reminder times must be HH:mm (24h), e.g. 08:30 and 22:00.");
+        setSaving(false);
+        return;
+      }
+
       const body: Record<string, unknown> = {
         name: name.trim(),
         email: email.trim(),
@@ -114,6 +134,10 @@ export default function ProfileScreen() {
         primaryGoal: primaryGoal.trim() || null,
         age: ageVal,
         appointmentReminderHoursBefore: rh,
+        timezone: timezone.trim() || "Asia/Kolkata",
+        routineRemindersEnabled,
+        routineAmReminderHm: routineAmHm.trim(),
+        routinePmReminderHm: routinePmHm.trim(),
       };
       if (newPassword || currentPassword) {
         body.currentPassword = currentPassword;
@@ -188,6 +212,42 @@ export default function ProfileScreen() {
         keyboardType="number-pad"
       />
 
+      <Text style={styles.section}>Daily routine reminders (Clinic Support)</Text>
+      <View style={styles.switchRow}>
+        <Text style={styles.lab}>Enable AM/PM routine reminders</Text>
+        <Switch
+          value={routineRemindersEnabled}
+          onValueChange={setRoutineRemindersEnabled}
+          trackColor={{ false: "#d4d4d8", true: "#99f6e4" }}
+          thumbColor={routineRemindersEnabled ? "#0d9488" : "#f4f4f5"}
+        />
+      </View>
+      <L label="Timezone (IANA, e.g. Asia/Kolkata)" value={timezone} onChangeText={setTimezone} />
+      <Pressable
+        style={styles.tzBtn}
+        onPress={() => {
+          try {
+            setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+          } catch {
+            /* ignore */
+          }
+        }}
+      >
+        <Text style={styles.tzBtnText}>Use this device timezone</Text>
+      </Pressable>
+      <L
+        label="Morning reminder (HH:mm 24h)"
+        value={routineAmHm}
+        onChangeText={setRoutineAmHm}
+        autoCapitalize="none"
+      />
+      <L
+        label="Evening reminder (HH:mm 24h)"
+        value={routinePmHm}
+        onChangeText={setRoutinePmHm}
+        autoCapitalize="none"
+      />
+
       <Text style={styles.section}>Change password (optional)</Text>
       <L
         label="Current password"
@@ -229,7 +289,7 @@ function L({
   value,
   onChangeText,
   secure,
-  autoCapitalize,
+  autoCapitalize = "sentences",
   keyboardType,
 }: {
   label: string;
@@ -247,7 +307,7 @@ function L({
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={secure}
-        autoCapitalize={autoCapitalize ?? "sentences"}
+        autoCapitalize={autoCapitalize}
         keyboardType={keyboardType ?? "default"}
       />
     </View>
@@ -289,4 +349,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   outBtnText: { color: "#0d9488", fontWeight: "700", fontSize: 16 },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    gap: 12,
+  },
+  tzBtn: {
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#e4e4e7",
+    backgroundColor: "#fafafa",
+    alignSelf: "flex-start",
+  },
+  tzBtnText: { fontSize: 14, fontWeight: "600", color: "#0f766e" },
 });

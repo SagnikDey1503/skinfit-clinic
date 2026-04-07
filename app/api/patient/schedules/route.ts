@@ -71,33 +71,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const [activeRows, completedRows, eventRows, bookedRows] = await Promise.all([
-    db.query.priorityReminders.findMany({
-      where: and(
-        eq(priorityReminders.userId, userId),
-        eq(priorityReminders.completed, false)
-      ),
-      orderBy: [asc(priorityReminders.sortOrder)],
-      columns: {
-        id: true,
-        title: true,
-        priority: true,
-        sortOrder: true,
-      },
-    }),
-    db.query.priorityReminders.findMany({
-      where: and(
-        eq(priorityReminders.userId, userId),
-        eq(priorityReminders.completed, true)
-      ),
-      columns: {
-        id: true,
-        title: true,
-        priority: true,
-        completedAt: true,
-        updatedAt: true,
-      },
-    }),
+  const [eventRows, bookedRows] = await Promise.all([
     db.query.scheduleEvents.findMany({
       where: eq(scheduleEvents.userId, userId),
       orderBy: [
@@ -131,26 +105,6 @@ export async function GET(request: Request) {
       ),
   ]);
 
-  completedRows.sort(
-    (a, b) =>
-      (b.completedAt ?? b.updatedAt).getTime() -
-      (a.completedAt ?? a.updatedAt).getTime()
-  );
-
-  const initialActiveReminders = activeRows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    priority: r.priority,
-    sortOrder: r.sortOrder,
-  }));
-
-  const initialCompletedHistory = completedRows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    priority: r.priority,
-    completedAtIso: (r.completedAt ?? r.updatedAt).toISOString(),
-  }));
-
   const fromSchedule = eventRows.map((r) => ({
     id: r.id,
     eventDateYmd: ymdFromDateOnly(r.eventDate),
@@ -179,8 +133,6 @@ export async function GET(request: Request) {
   );
 
   return NextResponse.json({
-    initialActiveReminders,
-    initialCompletedHistory,
     initialScheduleEvents,
   });
 }

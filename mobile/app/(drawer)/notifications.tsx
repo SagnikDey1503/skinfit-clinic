@@ -27,7 +27,6 @@ export default function NotificationsScreen() {
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [supportCount, setSupportCount] = useState(0);
   const [doctorCount, setDoctorCount] = useState(0);
-  const [reminderCount, setReminderCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pushBusy, setPushBusy] = useState(false);
 
@@ -40,20 +39,14 @@ export default function NotificationsScreen() {
         getDoctorInboxLastSeenIso(),
       ]);
       const inboxQ = new URLSearchParams({ supportSince, doctorSince });
-      const [inbox, schedules] = await Promise.all([
-        apiJson<{
-          total?: number;
-          supportCount?: number;
-          doctorCount?: number;
-        }>(`/api/chat/inbox/unread?${inboxQ.toString()}`, token, { method: "GET" }),
-        apiJson<{
-          initialActiveReminders?: { id: string }[];
-        }>("/api/patient/schedules", token, { method: "GET" }),
-      ]);
+      const inbox = await apiJson<{
+        total?: number;
+        supportCount?: number;
+        doctorCount?: number;
+      }>(`/api/chat/inbox/unread?${inboxQ.toString()}`, token, { method: "GET" });
       setUnreadTotal(typeof inbox.total === "number" ? inbox.total : 0);
       setSupportCount(typeof inbox.supportCount === "number" ? inbox.supportCount : 0);
       setDoctorCount(typeof inbox.doctorCount === "number" ? inbox.doctorCount : 0);
-      setReminderCount(schedules.initialActiveReminders?.length ?? 0);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         /* signed out */
@@ -98,7 +91,7 @@ export default function NotificationsScreen() {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Notifications</Text>
-      <Text style={styles.sub}>Clinic messages, reminders, and optional push alerts.</Text>
+      <Text style={styles.sub}>Clinic messages and optional push alerts.</Text>
 
       {loading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color="#0d9488" />
@@ -137,11 +130,9 @@ export default function NotificationsScreen() {
               <Ionicons name="calendar-outline" size={22} color="#2563eb" />
             </View>
             <View style={styles.cardBody}>
-              <Text style={styles.cardTitle}>Schedules & reminders</Text>
+              <Text style={styles.cardTitle}>Schedules & calendar</Text>
               <Text style={styles.cardSub}>
-                {reminderCount === 0
-                  ? "No active priority reminders."
-                  : `${reminderCount} active reminder${reminderCount === 1 ? "" : "s"}.`}
+                Your appointments and calendar.
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#94a3b8" />

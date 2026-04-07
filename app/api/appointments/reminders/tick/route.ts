@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
 import { markPastAppointmentsCompleted } from "@/src/lib/markPastAppointmentsCompleted";
 import { runAppointmentReminders } from "@/src/lib/runAppointmentReminders";
+import { runRoutineReminders } from "@/src/lib/runRoutineReminders";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,9 @@ export async function POST(req: Request) {
 
   try {
     await markPastAppointmentsCompleted();
-    const result = await runAppointmentReminders();
-    return NextResponse.json({ ok: true, ...result });
+    const appointments = await runAppointmentReminders();
+    const routine = await runRoutineReminders();
+    return NextResponse.json({ ok: true, appointments, routine });
   } catch (e) {
     console.error("appointments/reminders/tick", e);
     return NextResponse.json({ error: "TICK_FAILED" }, { status: 500 });

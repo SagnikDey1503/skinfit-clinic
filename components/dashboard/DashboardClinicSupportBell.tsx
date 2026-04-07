@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
 import {
   CLINIC_SUPPORT_INBOX_EVENT,
@@ -10,8 +11,12 @@ import {
   getDoctorInboxLastSeenIso,
 } from "@/src/lib/clinicSupportInboxClient";
 
+/** Routine reminders + clinic messages all land in the support thread; this badge reflects unread counts. */
+const POLL_MS = 15_000;
+
 export function DashboardClinicSupportBell() {
   const [count, setCount] = useState(0);
+  const pathname = usePathname();
 
   const refresh = useCallback(async () => {
     try {
@@ -42,14 +47,20 @@ export function DashboardClinicSupportBell() {
 
   useEffect(() => {
     void refresh();
-    const t = setInterval(() => void refresh(), 45_000);
+    const t = setInterval(() => void refresh(), POLL_MS);
     return () => clearInterval(t);
   }, [refresh]);
+
+  useEffect(() => {
+    void refresh();
+  }, [pathname, refresh]);
 
   useEffect(() => {
     const bump = () => void refresh();
     window.addEventListener(CLINIC_SUPPORT_INBOX_EVENT, bump);
     window.addEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, bump);
+    window.addEventListener("focus", bump);
+    window.addEventListener("pageshow", bump);
     const onVis = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -57,6 +68,8 @@ export function DashboardClinicSupportBell() {
     return () => {
       window.removeEventListener(CLINIC_SUPPORT_INBOX_EVENT, bump);
       window.removeEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, bump);
+      window.removeEventListener("focus", bump);
+      window.removeEventListener("pageshow", bump);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [refresh]);

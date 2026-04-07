@@ -187,7 +187,15 @@ async function renderReportToJsPdf(element: HTMLElement) {
     };
 
     if (sectionNodes.length > 0) {
+      const marginMm = 8;
       for (const node of sectionNodes) {
+        if (
+          node.dataset.pdfPageBreakBefore === "true" &&
+          flow.hasPlacedAnything
+        ) {
+          pdf.addPage();
+          flow.nextTopMm = marginMm;
+        }
         const canvas = await html2canvas(node, captureOpts);
         appendCanvasToPdf(pdf, canvas, flow);
       }

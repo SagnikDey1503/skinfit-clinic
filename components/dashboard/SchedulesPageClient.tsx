@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   format,
-  parseISO,
   addMonths,
   subMonths,
   addWeeks,
@@ -19,35 +18,14 @@ import {
 } from "date-fns";
 import { motion } from "framer-motion";
 import {
-  Check,
   ChevronLeft,
   ChevronRight,
-  Flame,
   RefreshCw,
   Send,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { CLINIC_SUPPORT_INBOX_REFRESH_EVENT } from "@/src/lib/clinicSupportInboxClient";
 import { effectiveSlotEndHm, formatSlotTimeRange } from "@/src/lib/slotTimeHm";
-
-export type PriorityReminderRow = {
-  id: string;
-  title: string;
-  priority: "high" | "medium" | "low";
-  sortOrder: number;
-};
-
-export type CompletedReminderHistoryRow = {
-  id: string;
-  title: string;
-  priority: "high" | "medium" | "low";
-  /** ISO string from server `completed_at` (or legacy `updated_at`). */
-  completedAtIso: string;
-};
-
-type ActiveReminderDisplay = PriorityReminderRow & { isDismissing?: boolean };
-
-const REMINDER_DISMISS_MS = 3500;
 
 export type ScheduleEventRow = {
   id: string;
@@ -85,9 +63,6 @@ type DoctorCalendarSlot = {
 const WEEK_OPTS = { weekStartsOn: 0 as const }; // Sun–Sat like the grid
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-const CARD =
-  "rounded-[22px] border border-zinc-100 bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6";
 
 /** Calendar toolbar: segmented groups (gap between pills avoids clipped/overlapping borders) */
 const CAL_SEG_GROUP =
@@ -248,29 +223,18 @@ function eventsInWeek(events: ScheduleEventRow[], ref: Date): ScheduleEventRow[]
 }
 
 export default function SchedulesPageClient({
-  initialActiveReminders,
-  initialCompletedHistory,
   initialScheduleEvents,
   initialCalendarTab = "mine",
 }: {
-  initialActiveReminders: PriorityReminderRow[];
-  initialCompletedHistory: CompletedReminderHistoryRow[];
   initialScheduleEvents: ScheduleEventRow[];
   /** When `calendar=doctor` is in the URL (e.g. from scan report “Book now”). */
   initialCalendarTab?: CalendarTab;
 }) {
   const router = useRouter();
-  const [activeReminders, setActiveReminders] = useState<ActiveReminderDisplay[]>(
-    () => initialActiveReminders.map((r) => ({ ...r }))
-  );
-  const [completedHistory, setCompletedHistory] = useState(
-    initialCompletedHistory
-  );
   const [scheduleEvents, setScheduleEvents] = useState(initialScheduleEvents);
   const [view, setView] = useState<"month" | "week">("month");
   /** Null until client mount so SSR + first paint match (avoids React #418: server UTC vs browser local). */
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
-  const [todayBanner, setTodayBanner] = useState("");
 
   const [calendarTab, setCalendarTab] = useState<CalendarTab>(
     () => initialCalendarTab
@@ -292,27 +256,12 @@ export default function SchedulesPageClient({
   const [requestError, setRequestError] = useState<string | null>(null);
   const [scheduleRefreshing, setScheduleRefreshing] = useState(false);
 
-  const dismissTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map()
-  );
-  const pendingDismissRef = useRef<Map<string, PriorityReminderRow>>(new Map());
-
-  useEffect(() => {
-    setActiveReminders(initialActiveReminders.map((r) => ({ ...r })));
-  }, [initialActiveReminders]);
-
-  useEffect(() => {
-    setCompletedHistory(initialCompletedHistory);
-  }, [initialCompletedHistory]);
-
   useEffect(() => {
     setScheduleEvents(initialScheduleEvents);
   }, [initialScheduleEvents]);
 
   useEffect(() => {
-    const now = new Date();
-    setCurrentDate(now);
-    setTodayBanner(format(now, "EEEE, MMM do"));
+    setCurrentDate(new Date());
   }, []);
 
   useEffect(() => {
@@ -350,102 +299,6 @@ export default function SchedulesPageClient({
       alive = false;
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      dismissTimeoutsRef.current.forEach((t) => clearTimeout(t));
-      dismissTimeoutsRef.current.clear();
-    };
-  }, []);
-
-  const toggleReminder = useCallback(
-    async (
-      id: string,
-      nextCompleted: boolean,
-      row: ActiveReminderDisplay
-    ) => {
-      const existing = dismissTimeoutsRef.current.get(id);
-      if (existing) {
-        clearTimeout(existing);
-        dismissTimeoutsRef.current.delete(id);
-      }
-
-      if (!nextCompleted) {
-        pendingDismissRef.current.delete(id);
-        setActiveReminders((prev) =>
-          prev.map((r) => (r.id === id ? { ...r, isDismissing: false } : r))
-        );
-        try {
-          const res = await fetch("/api/reminders", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, completed: false }),
-          });
-          if (!res.ok) throw new Error("patch failed");
-          setCompletedHistory((prev) => prev.filter((h) => h.id !== id));
-          router.refresh();
-        } catch {
-          setActiveReminders((prev) =>
-            prev.map((r) => (r.id === id ? { ...r, isDismissing: true } : r))
-          );
-        }
-        return;
-      }
-
-      pendingDismissRef.current.set(id, {
-        id: row.id,
-        title: row.title,
-        priority: row.priority,
-        sortOrder: row.sortOrder,
-      });
-      setActiveReminders((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, isDismissing: true } : r))
-      );
-
-      let completedAtIso = new Date().toISOString();
-      try {
-        const res = await fetch("/api/reminders", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, completed: true }),
-        });
-        if (!res.ok) throw new Error("patch failed");
-        const body = (await res.json()) as {
-          reminder?: { completedAt?: string | null };
-        };
-        if (body.reminder?.completedAt) {
-          completedAtIso = new Date(body.reminder.completedAt).toISOString();
-        }
-      } catch {
-        pendingDismissRef.current.delete(id);
-        setActiveReminders((prev) =>
-          prev.map((r) => (r.id === id ? { ...r, isDismissing: false } : r))
-        );
-        return;
-      }
-
-      const t = setTimeout(() => {
-        dismissTimeoutsRef.current.delete(id);
-        const snap = pendingDismissRef.current.get(id);
-        pendingDismissRef.current.delete(id);
-        if (snap) {
-          setCompletedHistory((prev) => [
-            {
-              id: snap.id,
-              title: snap.title,
-              priority: snap.priority,
-              completedAtIso,
-            },
-            ...prev.filter((h) => h.id !== snap.id),
-          ]);
-        }
-        setActiveReminders((prev) => prev.filter((r) => r.id !== id));
-        router.refresh();
-      }, REMINDER_DISMISS_MS);
-      dismissTimeoutsRef.current.set(id, t);
-    },
-    [router]
-  );
 
   const calendarCells: (Date | null)[] = !currentDate
     ? Array.from({ length: view === "month" ? 42 : 7 }, () => null)
@@ -648,143 +501,10 @@ export default function SchedulesPageClient({
       </motion.header>
 
       <motion.section
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1, duration: 0.5 }}
-        className={CARD}
-      >
-        <p className="mb-1 min-h-[1.25rem] text-sm text-zinc-500">
-          {todayBanner || "\u00a0"}
-        </p>
-        <h3 className="mb-4 text-lg font-bold text-zinc-900">
-          Priority Reminders
-        </h3>
-        {activeReminders.length === 0 ? (
-          <p className="py-4 text-center text-sm text-zinc-600">
-            No active reminders.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {activeReminders.map((task) => {
-              const doneVisual = Boolean(task.isDismissing);
-              return (
-                <motion.li
-                  key={task.id}
-                  layout
-                  whileHover={{ scale: doneVisual ? 1 : 1.01 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                  className={`flex items-center justify-between gap-3 rounded-[14px] border border-zinc-100 bg-[#FDF9F0]/50 px-4 py-3 transition-colors hover:border-[#6B8E8E]/30 hover:bg-[#E0F0ED]/40 ${
-                    doneVisual ? "opacity-80" : ""
-                  }`}
-                >
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={doneVisual}
-                      onChange={(e) =>
-                        void toggleReminder(
-                          task.id,
-                          e.target.checked,
-                          task
-                        )
-                      }
-                      className="peer sr-only"
-                    />
-                    <span
-                      className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-[#6B8E8E] bg-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-teal-500"
-                      aria-hidden
-                    >
-                      {doneVisual && (
-                        <Check
-                          className="h-2.5 w-2.5 text-teal-700"
-                          strokeWidth={3}
-                        />
-                      )}
-                    </span>
-                    <span
-                      className={`text-sm font-medium text-zinc-800 ${
-                        doneVisual ? "text-zinc-500 line-through" : ""
-                      }`}
-                    >
-                      {task.title}
-                    </span>
-                  </label>
-                  <div
-                    className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                      task.priority === "high"
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-zinc-100 text-zinc-600"
-                    }`}
-                  >
-                    {task.priority === "high" && <Flame className="h-3 w-3" />}
-                    {task.priority === "high"
-                      ? "High"
-                      : task.priority === "medium"
-                        ? "Medium"
-                        : "Low"}
-                  </div>
-                </motion.li>
-              );
-            })}
-          </ul>
-        )}
-
-        <div className="mt-6 border-t border-zinc-100 pt-5">
-          <h4 className="mb-3 text-sm font-bold text-zinc-900">
-            Completed reminder history
-          </h4>
-          {completedHistory.length === 0 ? (
-            <p className="text-center text-sm text-zinc-500">
-              Completed reminders show up here with the date you finished them.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {completedHistory.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex flex-col gap-1 rounded-[14px] border border-zinc-100 bg-zinc-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <span className="text-sm font-medium text-zinc-600 line-through">
-                    {item.title}
-                  </span>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <span className="text-xs text-zinc-500">
-                      {currentDate
-                        ? format(
-                            parseISO(item.completedAtIso),
-                            "MMM d, yyyy · h:mm a"
-                          )
-                        : "\u00a0"}
-                    </span>
-                    <span
-                      className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        item.priority === "high"
-                          ? "bg-amber-100/80 text-amber-800"
-                          : "bg-zinc-200/80 text-zinc-600"
-                      }`}
-                    >
-                      {item.priority === "high" && (
-                        <Flame className="h-2.5 w-2.5" />
-                      )}
-                      {item.priority === "high"
-                        ? "High"
-                        : item.priority === "medium"
-                          ? "Medium"
-                          : "Low"}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </motion.section>
-
-      <motion.section
         id="schedules-doctor-calendar"
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.5 }}
+        transition={{ delay: 0.1, duration: 0.5 }}
         className="overflow-hidden rounded-[22px] border border-zinc-100 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.06)]"
       >
         <div className="flex flex-col gap-4 border-b border-zinc-100 px-4 py-4 sm:px-6">

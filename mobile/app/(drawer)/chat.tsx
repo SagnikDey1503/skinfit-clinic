@@ -137,7 +137,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (messages.length > 0) scrollToEnd();
-  }, [messages.length, scrollToEnd]);
+  }, [messages, scrollToEnd]);
 
   const fetchPlainMessages = useCallback(
     async (assistantId: AssistantId) => {

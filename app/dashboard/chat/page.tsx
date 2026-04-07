@@ -69,6 +69,27 @@ export default function ChatPage() {
   const activeAssistantRef = useRef<AssistantId>("ai");
   activeAssistantRef.current = activeAssistant;
 
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollMessagesToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = messagesScrollRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+    });
+  }, []);
+
+  useEffect(() => {
+    scrollMessagesToBottom();
+  }, [
+    messages,
+    typingIndex,
+    isLoading,
+    error,
+    activeAssistant,
+    scrollMessagesToBottom,
+  ]);
+
   const activeContact = useMemo(
     () => contacts.find((c) => c.id === activeAssistant)!,
     [activeAssistant]
@@ -713,7 +734,10 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-[#FDF9F0]/30 p-4 sm:p-6">
+        <div
+          ref={messagesScrollRef}
+          className="flex-1 overflow-y-auto bg-[#FDF9F0]/30 p-4 sm:p-6"
+        >
           <div className="flex flex-col gap-4">
             {messages.map((msg) => {
               const ts =

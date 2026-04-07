@@ -12,6 +12,10 @@ import {
   SwitchCamera,
 } from "lucide-react";
 import { SkinScanReportModal } from "../../../components/dashboard/SkinScanReportModal";
+import {
+  FACE_SCAN_CAPTURE_STEPS,
+  FACE_SCAN_INSTRUCTIONS_BELOW_CAMERA,
+} from "../../../src/lib/faceScanCaptures";
 
 type ScanStep = "upload" | "confirm" | "naming" | "scanning" | "results";
 
@@ -37,20 +41,35 @@ interface ScanResults {
   scanDate?: string;
 }
 
+type CaptureItem = {
+  file: File;
+  preview: string;
+  label: (typeof FACE_SCAN_CAPTURE_STEPS)[number]["id"];
+};
+
+const N_CAPTURES = FACE_SCAN_CAPTURE_STEPS.length;
+
 export default function ScanPage() {
   const router = useRouter();
   const [step, setStep] = useState<ScanStep>("upload");
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [captures, setCaptures] = useState<CaptureItem[]>([]);
   const [scanName, setScanName] = useState("");
   const [scanResults, setScanResults] = useState<ScanResults | null>(null);
   const [reportOpen, setReportOpen] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const primaryPreview = captures[0]?.preview ?? null;
+
+  const revokeAllCaptures = useCallback((items: CaptureItem[]) => {
+    items.forEach((c) => URL.revokeObjectURL(c.preview));
+  }, []);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -58,14 +77,6 @@ export default function ScanPage() {
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraOpen(false);
     setCameraError(null);
-  }, []);
-
-  const handleFileSelect = useCallback((selectedFile: File) => {
-    if (!selectedFile.type.startsWith("image/")) return;
-    setFile(selectedFile);
-    setPreviewUrl(URL.createObjectURL(selectedFile));
-    setScanResults(null);
-    setStep("confirm");
   }, []);
 
   useEffect(() => {
@@ -86,7 +97,7 @@ export default function ScanPage() {
     async (facing: "user" | "environment") => {
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
         setCameraError(
-          "Camera is not available in this browser. Try Chrome, Safari, or Edge, or upload a photo instead."
+          "Camera is not available in this browser. Try Chrome, Safari, or Edge, or upload photos instead."
         );
         return;
       }
@@ -107,12 +118,21 @@ export default function ScanPage() {
         setCameraOpen(true);
       } catch {
         setCameraError(
-          "Could not open the camera. Allow permission in your browser, use HTTPS (or localhost), or upload a file instead."
+          "Could not open the camera. Allow permission in your browser, use HTTPS (or localhost), or upload files instead."
         );
       }
     },
     []
   );
+
+  const openCameraForMultiCapture = useCallback(() => {
+    setUploadError(null);
+    setCaptures((prev) => {
+      revokeAllCaptures(prev);
+      return [];
+    });
+    void startCamera("user");
+  }, [revokeAllCaptures, startCamera]);
 
   const flipCamera = useCallback(() => {
     void startCamera(facingMode === "user" ? "environment" : "user");
@@ -124,78 +144,170 @@ export default function ScanPage() {
     const w = video.videoWidth;
     const h = video.videoHeight;
     if (!w || !h) return;
+    const maxEdge = 1280;
+    let tw = w;
+    let th = h;
+    if (w > maxEdge || h > maxEdge) {
+      if (w >= h) {
+        th = Math.round((h * maxEdge) / w);
+        tw = maxEdge;
+      } else {
+        tw = Math.round((w * maxEdge) / h);
+        th = maxEdge;
+      }
+    }
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = tw;
+    canvas.height = th;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0, w, h);
+    // Match mirrored selfie preview: flip horizontally for front camera only.
+    const mirror = facingMode === "user";
+    ctx.save();
+    if (mirror) {
+      ctx.translate(tw, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, w, h, 0, 0, tw, th);
+    ctx.restore();
     canvas.toBlob(
       (blob) => {
         if (!blob) return;
-        const captured = new File(
-          [blob],
-          `skin-scan-${Date.now()}.jpg`,
-          { type: "image/jpeg" }
-        );
-        stopCamera();
-        handleFileSelect(captured);
+        setCaptures((prev) => {
+          if (prev.length >= N_CAPTURES) return prev;
+          const step = FACE_SCAN_CAPTURE_STEPS[prev.length];
+          const captured = new File(
+            [blob],
+            `face-scan-${step.id}-${Date.now()}.jpg`,
+            { type: "image/jpeg" }
+          );
+          const preview = URL.createObjectURL(blob);
+          const next: CaptureItem[] = [
+            ...prev,
+            { file: captured, preview, label: step.id },
+          ];
+          if (next.length >= N_CAPTURES) {
+            queueMicrotask(() => {
+              stopCamera();
+              setStep("confirm");
+            });
+          }
+          return next;
+        });
       },
       "image/jpeg",
-      0.92
+      0.82
     );
-  }, [handleFileSelect, stopCamera]);
+  }, [facingMode, stopCamera]);
+
+  const cancelCamera = useCallback(() => {
+    setCaptures((prev) => {
+      revokeAllCaptures(prev);
+      return [];
+    });
+    stopCamera();
+  }, [revokeAllCaptures, stopCamera]);
+
+  const applyFileList = useCallback(
+    (files: FileList | File[] | null) => {
+      if (!files?.length) return;
+      const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
+      if (arr.length !== N_CAPTURES) {
+        setUploadError(
+          `Select exactly ${N_CAPTURES} face photos in order (front → … → left). You picked ${arr.length}.`
+        );
+        return;
+      }
+      setUploadError(null);
+      setCaptures((prev) => {
+        revokeAllCaptures(prev);
+        return arr.map((file, i) => ({
+          file,
+          preview: URL.createObjectURL(file),
+          label: FACE_SCAN_CAPTURE_STEPS[i].id,
+        }));
+      });
+      setScanResults(null);
+      setStep("confirm");
+    },
+    [revokeAllCaptures]
+  );
 
   const resetScan = useCallback(() => {
     stopCamera();
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setCaptures((prev) => {
+      revokeAllCaptures(prev);
+      return [];
+    });
     setStep("upload");
-    setFile(null);
-    setPreviewUrl(null);
     setScanName("");
     setScanResults(null);
-  }, [previewUrl, stopCamera]);
+    setUploadError(null);
+    setScanError(null);
+  }, [revokeAllCaptures, stopCamera]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
-      const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile) handleFileSelect(droppedFile);
+      applyFileList(e.dataTransfer.files);
     },
-    [handleFileSelect]
+    [applyFileList]
   );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) handleFileSelect(selectedFile);
+    applyFileList(e.target.files);
     e.target.value = "";
   };
 
   const runScan = useCallback(async () => {
-    if (!file || !scanName.trim()) return;
+    if (captures.length !== N_CAPTURES || !scanName.trim()) return;
     setStep("scanning");
+    setScanError(null);
     try {
       const formData = new FormData();
-      formData.append("image", file);
       formData.append("scanName", scanName.trim());
+      captures.forEach((c) => formData.append("images", c.file));
       const res = await fetch("/api/scan", {
         method: "POST",
         body: formData,
       });
-      const json = await res.json();
-      if (json.success && json.data) {
+      const json = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        data?: ScanResults & { id?: number };
+      };
+      if (!res.ok || !json.success) {
+        setScanError(
+          json.error ||
+            (res.status === 401
+              ? "Sign in to save your scan."
+              : "Scan failed. Try again.")
+        );
+        setStep("naming");
+        return;
+      }
+      const scanId = json.data?.id;
+      if (typeof scanId === "number" && scanId >= 1) {
+        router.push(`/dashboard/history/scans/${scanId}`);
+        return;
+      }
+      if (json.data) {
         setScanResults(json.data);
         setReportOpen(true);
         setStep("results");
-        router.refresh();
       } else {
+        setScanError("Scan saved but no report id returned.");
         setStep("naming");
       }
     } catch {
+      setScanError("Network error. Check your connection and try again.");
       setStep("naming");
     }
-  }, [file, scanName, router]);
+  }, [captures, scanName, router]);
+
+  const currentCameraStep = FACE_SCAN_CAPTURE_STEPS[Math.min(captures.length, N_CAPTURES - 1)];
+  const captureCount = captures.length;
 
   return (
     <div className="space-y-6">
@@ -205,38 +317,53 @@ export default function ScanPage() {
         transition={{ duration: 0.5 }}
       >
         <h1 className="text-center text-2xl font-bold tracking-tight text-zinc-900">
-          AI Skin Scan
+          AI face scan
         </h1>
         <p className="mt-1 text-center text-sm text-zinc-600">
-          Use your camera or upload a photo for AI skin analysis
+          Face only — capture {N_CAPTURES} guided photos for analysis
         </p>
       </motion.header>
 
-      {/* Step: Upload */}
+      {/* Step: Upload — live camera (multi-capture) */}
       {step === "upload" && cameraOpen && (
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4 rounded-[22px] border border-zinc-200 bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
         >
-          <div className="relative overflow-hidden rounded-2xl bg-zinc-900 aspect-[3/4] max-h-[min(70vh,520px)] w-full mx-auto max-w-md">
+          <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 text-center">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Step {Math.min(captureCount + 1, N_CAPTURES)} of {N_CAPTURES}
+            </p>
+            <p className="mt-1 text-base font-semibold text-zinc-900">{currentCameraStep.title}</p>
+            <p className="mt-0.5 text-sm text-zinc-600">{currentCameraStep.instruction}</p>
+          </div>
+          <div className="relative mx-auto aspect-[3/4] max-h-[min(70vh,520px)] w-full max-w-md overflow-hidden rounded-2xl bg-zinc-900">
             <video
               ref={videoRef}
-              className="h-full w-full object-cover"
+              className={
+                facingMode === "user"
+                  ? "h-full w-full scale-x-[-1] object-cover"
+                  : "h-full w-full object-cover"
+              }
               playsInline
               muted
               autoPlay
-              aria-label="Live camera preview"
+              aria-label="Live camera preview (mirrored for front camera)"
             />
+            <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-lg bg-zinc-950/55 px-3 py-2 text-center text-xs text-white backdrop-blur-sm">
+              {captureCount}/{N_CAPTURES} captured
+            </div>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
             <button
               type="button"
               onClick={captureFromCamera}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-teal-500 sm:w-auto sm:min-w-[200px] sm:flex-1"
+              disabled={captureCount >= N_CAPTURES}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-[200px] sm:flex-1"
             >
               <Camera className="h-5 w-5" />
-              Capture photo
+              Capture
             </button>
             <button
               type="button"
@@ -249,7 +376,7 @@ export default function ScanPage() {
             </button>
             <button
               type="button"
-              onClick={stopCamera}
+              onClick={cancelCamera}
               className="flex w-full items-center justify-center rounded-xl border border-zinc-200 bg-white py-3.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 sm:w-auto sm:min-w-[120px]"
             >
               Cancel
@@ -282,21 +409,23 @@ export default function ScanPage() {
               id="scan-file-input"
               type="file"
               accept="image/*"
+              multiple
               className="sr-only"
               onChange={handleInputChange}
             />
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#E0F0ED]">
               <ImagePlus className="h-8 w-8 text-[#6B8E8E]" />
             </div>
-            <p className="mb-1 font-semibold text-zinc-900">Drop a photo here</p>
+            <p className="mb-1 font-semibold text-zinc-900">Drop {N_CAPTURES} face photos</p>
             <p className="mb-6 text-sm text-zinc-600">
-              or choose from your gallery / files
+              Same order as below (front through left profile), or use the camera for guided
+              captures
             </p>
             <label
               htmlFor="scan-file-input"
               className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50"
             >
-              Choose file
+              Choose {N_CAPTURES} files
             </label>
           </div>
 
@@ -310,13 +439,27 @@ export default function ScanPage() {
 
           <button
             type="button"
-            onClick={() => void startCamera("user")}
+            onClick={openCameraForMultiCapture}
             className="flex w-full items-center justify-center gap-2 rounded-[22px] border-2 border-[#6B8E8E]/35 bg-[#E0F0ED]/60 py-4 text-sm font-semibold text-zinc-900 transition-colors hover:bg-[#E0F0ED]"
           >
             <Camera className="h-5 w-5 text-[#6B8E8E]" />
             Use device camera
           </button>
 
+          <ul className="list-inside list-disc space-y-1.5 rounded-2xl border border-zinc-100 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-700">
+            {FACE_SCAN_INSTRUCTIONS_BELOW_CAMERA.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+
+          {uploadError ? (
+            <p
+              className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900"
+              role="alert"
+            >
+              {uploadError}
+            </p>
+          ) : null}
           {cameraError ? (
             <p
               className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900"
@@ -329,35 +472,66 @@ export default function ScanPage() {
       )}
 
       {/* Step: Confirm */}
-      {step === "confirm" && file && previewUrl && (
+      {step === "confirm" && captures.length === N_CAPTURES && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5 }}
           className="space-y-6"
         >
-          <div className="overflow-hidden rounded-[22px] border border-zinc-100 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
-            <div className="relative aspect-[3/4] max-h-[350px] w-full">
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="h-full w-full object-cover"
-              />
+          <div className="mx-auto max-w-md overflow-hidden rounded-[22px] border border-zinc-100 bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
+            <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-zinc-400">
+              Preview
+            </p>
+            {/* 3+2 portrait collage — avoids ultra-wide “strip” crops from 5 skinny columns */}
+            <div className="grid grid-cols-6 gap-2">
+              {captures.slice(0, 3).map((c, i) => (
+                <figure key={`${c.label}-${i}`} className="col-span-2 flex flex-col gap-1.5">
+                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-zinc-200/80">
+                    <img
+                      src={c.preview}
+                      alt={FACE_SCAN_CAPTURE_STEPS[i].title}
+                      className="h-full w-full object-cover object-center"
+                    />
+                  </div>
+                  <figcaption className="line-clamp-2 text-center text-[10px] font-medium leading-tight text-zinc-500">
+                    {FACE_SCAN_CAPTURE_STEPS[i].title}
+                  </figcaption>
+                </figure>
+              ))}
+              {captures.slice(3, 5).map((c, i) => (
+                <figure
+                  key={`${c.label}-${i + 3}`}
+                  className={`col-span-2 flex flex-col gap-1.5 ${i === 0 ? "col-start-2" : "col-start-4"}`}
+                >
+                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-zinc-200/80">
+                    <img
+                      src={c.preview}
+                      alt={FACE_SCAN_CAPTURE_STEPS[i + 3].title}
+                      className="h-full w-full object-cover object-center"
+                    />
+                  </div>
+                  <figcaption className="line-clamp-2 text-center text-[10px] font-medium leading-tight text-zinc-500">
+                    {FACE_SCAN_CAPTURE_STEPS[i + 3].title}
+                  </figcaption>
+                </figure>
+              ))}
             </div>
           </div>
           <div className="flex gap-4">
             <button
               type="button"
               onClick={() => {
-                if (previewUrl) URL.revokeObjectURL(previewUrl);
-                setFile(null);
-                setPreviewUrl(null);
+                setCaptures((prev) => {
+                  revokeAllCaptures(prev);
+                  return [];
+                });
                 setStep("upload");
               }}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white py-3 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
             >
               <RotateCcw className="h-4 w-4" />
-              Retake Image
+              Retake
             </button>
             <button
               type="button"
@@ -365,29 +539,59 @@ export default function ScanPage() {
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-teal-600 py-3 text-sm font-medium text-white transition-colors hover:bg-teal-500"
             >
               <Check className="h-4 w-4" />
-              Looks Good
+              Looks good
             </button>
           </div>
         </motion.div>
       )}
 
       {/* Step: Naming */}
-      {step === "naming" && previewUrl && (
+      {step === "naming" && primaryPreview && captures.length === N_CAPTURES && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5 }}
           className="space-y-6"
         >
-          <div className="overflow-hidden rounded-[22px] border border-zinc-100 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
-            <div className="relative aspect-[3/4] max-h-[280px] w-full">
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="h-full w-full object-cover grayscale-[20%]"
-              />
+          <div className="mx-auto max-w-md overflow-hidden rounded-[22px] border border-zinc-100 bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
+            <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-zinc-400">
+              Photos in this scan
+            </p>
+            <div className="grid grid-cols-6 gap-2">
+              {captures.slice(0, 3).map((c, i) => (
+                <div
+                  key={`thumb-${c.label}-${i}`}
+                  className="relative col-span-2 aspect-[3/4] overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-zinc-200/80"
+                >
+                  <img
+                    src={c.preview}
+                    alt=""
+                    className="h-full w-full object-cover object-center grayscale-[15%]"
+                  />
+                </div>
+              ))}
+              {captures.slice(3, 5).map((c, i) => (
+                <div
+                  key={`thumb-${c.label}-${i + 3}`}
+                  className={`relative col-span-2 aspect-[3/4] overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-zinc-200/80 ${i === 0 ? "col-start-2" : "col-start-4"}`}
+                >
+                  <img
+                    src={c.preview}
+                    alt=""
+                    className="h-full w-full object-cover object-center grayscale-[15%]"
+                  />
+                </div>
+              ))}
             </div>
           </div>
+          {scanError ? (
+            <p
+              className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm text-rose-900"
+              role="alert"
+            >
+              {scanError}
+            </p>
+          ) : null}
           <div className="rounded-[22px] border border-zinc-100 bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
             <label htmlFor="scan-name" className="mb-3 block text-sm font-medium text-zinc-700">
               Name this scan
@@ -395,7 +599,7 @@ export default function ScanPage() {
             <input
               id="scan-name"
               type="text"
-              placeholder="e.g., Morning Routine"
+              placeholder="e.g., Morning routine"
               value={scanName}
               onChange={(e) => setScanName(e.target.value)}
               className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
@@ -407,13 +611,13 @@ export default function ScanPage() {
             disabled={!scanName.trim()}
             className="w-full rounded-xl bg-teal-600 py-3 text-sm font-medium text-white transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Start Analysis
+            Start analysis
           </button>
         </motion.div>
       )}
 
       {/* Step: Scanning */}
-      {step === "scanning" && previewUrl && (
+      {step === "scanning" && primaryPreview && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -423,7 +627,7 @@ export default function ScanPage() {
           <div className="relative overflow-hidden rounded-[22px] border border-zinc-100 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
             <div className="relative aspect-[3/4] max-h-[400px] w-full">
               <img
-                src={previewUrl}
+                src={primaryPreview}
                 alt="Scanning"
                 className="h-full w-full object-cover grayscale-[30%]"
               />
@@ -435,9 +639,9 @@ export default function ScanPage() {
                 >
                   <Sparkles className="h-6 w-6 text-teal-600" />
                 </motion.div>
-                <p className="text-lg font-semibold text-zinc-900">Scanning...</p>
+                <p className="text-lg font-semibold text-zinc-900">Scanning…</p>
                 <p className="mt-1 text-sm text-zinc-600">
-                  AI is analyzing your skin
+                  AI is analyzing your face ({N_CAPTURES} photos)
                 </p>
                 <motion.div
                   className="absolute left-0 right-0 z-10 h-1 bg-teal-500 shadow-[0_0_16px_rgba(20,184,166,0.5)]"
@@ -456,13 +660,17 @@ export default function ScanPage() {
       )}
 
       {/* Step: Results — full report modal */}
-      {step === "results" && scanResults && previewUrl && (
+      {step === "results" && scanResults && primaryPreview && (
         <>
           <SkinScanReportModal
             open={reportOpen}
             onClose={() => setReportOpen(false)}
             userName={scanResults.userName?.trim() || "there"}
-            imageUrl={previewUrl}
+            imageUrl={primaryPreview}
+            faceCaptureGallery={captures.map((c, i) => ({
+              label: FACE_SCAN_CAPTURE_STEPS[i].title,
+              imageUrl: c.preview,
+            }))}
             regions={scanResults.detected_regions}
             metrics={{
               acne: scanResults.metrics.acne,
@@ -501,7 +709,7 @@ export default function ScanPage() {
                   className="w-full rounded-xl px-6 py-3 text-sm font-semibold text-white transition hover:opacity-95 sm:w-auto"
                   style={{ backgroundColor: "#6D8C8E" }}
                 >
-                  Scan another photo
+                  Scan again
                 </button>
               </div>
             </motion.div>

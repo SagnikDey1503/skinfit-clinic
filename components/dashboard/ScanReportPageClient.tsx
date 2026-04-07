@@ -13,6 +13,8 @@ export interface ScanReportPageClientProps {
   userEmail: string | null;
   scanTitle: string | null;
   imageUrl: string;
+  /** When set (5 face captures), report shows all photos in a collage. */
+  faceCaptureGallery?: Array<{ label: string; imageUrl: string }>;
   regions: ReportRegion[];
   metrics: ReportMetrics;
   aiSummary: string | null;
@@ -27,6 +29,7 @@ export function ScanReportPageClient({
   userEmail,
   scanTitle,
   imageUrl,
+  faceCaptureGallery,
   regions,
   metrics,
   aiSummary,
@@ -132,6 +135,7 @@ export function ScanReportPageClient({
           defaultShareEmail={userEmail}
           userName={userName}
           imageUrl={imageUrl}
+          faceCaptureGallery={faceCaptureGallery}
           regions={regions}
           metrics={metrics}
           aiSummary={aiSummary ?? undefined}

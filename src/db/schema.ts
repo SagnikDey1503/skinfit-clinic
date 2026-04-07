@@ -67,6 +67,30 @@ export const users = pgTable("users", {
     .default(24),
   /** Expo push token for native app alerts (nullable). */
   expoPushToken: text("expo_push_token"),
+  /**
+   * IANA timezone for routine reminder wall-clock times (e.g. Asia/Kolkata).
+   */
+  timezone: varchar("timezone", { length: 64 }).notNull().default("Asia/Kolkata"),
+  /** Daily AM/PM routine nudges in Clinic Support chat. */
+  routineRemindersEnabled: boolean("routine_reminders_enabled")
+    .notNull()
+    .default(true),
+  /** Local time of day `HH:mm` (24h) for AM routine reminder. */
+  routineAmReminderHm: varchar("routine_am_reminder_hm", { length: 5 })
+    .notNull()
+    .default("08:30"),
+  /** Local time of day `HH:mm` (24h) for PM routine reminder. */
+  routinePmReminderHm: varchar("routine_pm_reminder_hm", { length: 5 })
+    .notNull()
+    .default("22:00"),
+  /** Last calendar day (YYYY-MM-DD in user's timezone) we sent the AM routine reminder. */
+  routineAmReminderLastSentYmd: varchar("routine_am_reminder_last_sent_ymd", {
+    length: 10,
+  }),
+  /** Last calendar day we sent the PM routine reminder. */
+  routinePmReminderLastSentYmd: varchar("routine_pm_reminder_last_sent_ymd", {
+    length: 10,
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -78,6 +102,10 @@ export const scans = pgTable("scans", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   imageUrl: text("image_url").notNull(),
+  /** Ordered face captures (labels + data URIs); null for legacy single-image scans */
+  faceCaptureImages: jsonb("face_capture_images").$type<
+    Array<{ label: string; dataUri: string }>
+  >(),
   overallScore: integer("overall_score").notNull(),
   acne: integer("acne").notNull(),
   pigmentation: integer("pigmentation").notNull(),

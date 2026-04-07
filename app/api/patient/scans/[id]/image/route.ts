@@ -35,16 +35,34 @@ export async function GET(
     return NextResponse.json({ error: "INVALID_ID" }, { status: 400 });
   }
 
+  const urlObj = new URL(req.url);
+  const iRaw = urlObj.searchParams.get("i");
+  const index =
+    iRaw === null || iRaw === "" ? 0 : Number.parseInt(iRaw, 10);
+  if (!Number.isFinite(index) || index < 0 || index > 4) {
+    return NextResponse.json({ error: "INVALID_INDEX" }, { status: 400 });
+  }
+
   const row = await db.query.scans.findFirst({
     where: and(eq(scans.id, id), eq(scans.userId, userId)),
-    columns: { imageUrl: true },
+    columns: { imageUrl: true, faceCaptureImages: true },
   });
 
   if (!row) {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
 
-  const url = row.imageUrl?.trim() ?? "";
+  const multi = row.faceCaptureImages;
+  let url = "";
+
+  if (multi && multi.length === 5 && multi[index]?.dataUri) {
+    url = multi[index].dataUri.trim();
+  } else if (index === 0) {
+    url = row.imageUrl?.trim() ?? "";
+  } else {
+    return NextResponse.json({ error: "IMAGE_NOT_FOUND" }, { status: 404 });
+  }
+
   if (!url || url === "pending_upload") {
     return NextResponse.json({ error: "IMAGE_NOT_READY" }, { status: 404 });
   }
