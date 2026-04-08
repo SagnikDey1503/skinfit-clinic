@@ -440,6 +440,7 @@ function DayQuestBannerMobile({
 }) {
   const cd = useEndOfDayCountdown();
   const p = Math.min(1, Math.max(0, routineProgress));
+  const percent = Math.round(p * 100);
   return (
     <View
       style={[
@@ -448,8 +449,8 @@ function DayQuestBannerMobile({
         cd.isLastHour && styles.questCardUrgent,
       ]}
       accessibilityRole="progressbar"
-      accessibilityValue={{ min: 0, max: 1, now: p }}
-      accessibilityLabel={`AM and PM routine: ${Math.round(p * 100)} percent of steps completed today`}
+      accessibilityValue={{ min: 0, max: 100, now: percent }}
+      accessibilityLabel={`AM and PM routine: ${percent} percent of steps completed today`}
     >
       <Text style={styles.questKicker}>{"Today's quest"}</Text>
       <Text style={styles.questTitle}>
