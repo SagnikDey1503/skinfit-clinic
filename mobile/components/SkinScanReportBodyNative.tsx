@@ -19,9 +19,6 @@ const TEAL_BAND = "#E0EEEB";
 const PEACH = "#F29C91";
 const BTN = "#6D8C8E";
 
-const LOREM_PROFILE =
-  "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.";
-
 const CAUSES_P1 =
   "Environmental factors such as UV exposure, seasonal dryness, and urban pollution can accentuate texture irregularities and uneven tone. A consistent barrier-focused routine helps mitigate these stressors.";
 const CAUSES_P2 =
@@ -49,6 +46,15 @@ export type ReportMetricsNative = {
   overall_score: number;
   pigmentation: number;
   texture: number;
+  clinical_scores?: {
+    active_acne?: number;
+    skin_quality?: number;
+    wrinkle_severity?: number;
+    sagging_volume?: number;
+    under_eye?: number;
+    hair_health?: number;
+    pigmentation_model?: number | null;
+  };
 };
 
 type Props = {
@@ -57,6 +63,8 @@ type Props = {
   userSkinType: string;
   scanTitle: string | null;
   imageSource: ImageSourcePropType;
+  /** Data URI or URL: wrinkle + acne overlay from analyzer. */
+  annotatedOverlayUri?: string | null;
   regions: ReportRegion[];
   metrics: ReportMetricsNative;
   aiSummary: string | null;
@@ -67,6 +75,15 @@ type Props = {
 
 function clamp(n: number) {
   return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+function markerColor(issue: string): string {
+  const x = issue.toLowerCase();
+  if (x.includes("acne")) return "#dc2626";
+  if (x.includes("wrinkle")) return "#7c3aed";
+  if (x.includes("pigment")) return "#d97706";
+  if (x.includes("texture")) return "#0d9488";
+  return "#6b7280";
 }
 
 function displayScanTitle(raw: string | null): string | null {
@@ -84,6 +101,7 @@ export function SkinScanReportBodyNative({
   userSkinType,
   scanTitle,
   imageSource,
+  annotatedOverlayUri = null,
   regions,
   metrics,
   aiSummary,
@@ -93,11 +111,19 @@ export function SkinScanReportBodyNative({
 }: Props) {
   const router = useRouter();
   const displayTitle = displayScanTitle(scanTitle);
+  const overlayUri = annotatedOverlayUri?.trim() || "";
+  const faceSource: ImageSourcePropType =
+    overlayUri.length > 0 ? { uri: overlayUri } : imageSource;
+  const showFaceMarkers = overlayUri.length === 0;
   const overall = clamp(metrics.overall_score);
   const lastScanLabel = formatDistanceToNow(scanDate, { addSuffix: true });
-  const overview =
+  const heroIntro =
     aiSummary?.trim() ||
-    "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early.";
+    `Your latest scan shows an overall score of ${overall}% on our 0–100 scale (higher is better). Detailed scores and photo markers are below.`;
+  const overview =
+    aiSummary?.trim()
+      ? "Use the clinical bars and photo markers to see what this scan emphasized. Compare future scans for trends—this is educational, not a medical diagnosis."
+      : "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early.";
 
   const serif = Platform.select({
     ios: "Georgia",
@@ -143,7 +169,7 @@ export function SkinScanReportBodyNative({
           <Text style={styles.ageLine}>
             Age: {userAge}yrs · Skin type: {userSkinType}
           </Text>
-          <Text style={styles.bodyText}>{LOREM_PROFILE}</Text>
+          <Text style={styles.bodyText}>{heroIntro}</Text>
 
           <View style={styles.faceWrap}>
             <View style={styles.faceFrame}>
@@ -152,20 +178,23 @@ export function SkinScanReportBodyNative({
                 style={StyleSheet.absoluteFill}
                 pointerEvents="none"
               />
-              <Image source={imageSource} style={styles.faceImg} resizeMode="cover" />
-              {regions.map((region, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.marker,
-                    {
-                      left: `${region.coordinates.x}%`,
-                      top: `${region.coordinates.y}%`,
-                    },
-                  ]}
-                  accessibilityLabel={region.issue}
-                />
-              ))}
+              <Image source={faceSource} style={styles.faceImg} resizeMode="cover" />
+              {showFaceMarkers
+                ? regions.map((region, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        styles.marker,
+                        {
+                          left: `${region.coordinates.x}%`,
+                          top: `${region.coordinates.y}%`,
+                          backgroundColor: markerColor(region.issue),
+                        },
+                      ]}
+                      accessibilityLabel={region.issue}
+                    />
+                  ))
+                : null}
             </View>
           </View>
 
@@ -186,6 +215,30 @@ export function SkinScanReportBodyNative({
               </View>
             ))}
           </View>
+
+          {metrics.clinical_scores ? (
+            <View style={styles.clinicalBox}>
+              <Text style={styles.clinicalKicker}>MODEL SCORES (1–5)</Text>
+              <Text style={styles.clinicalHint}>Higher = more concern on these axes.</Text>
+              {[
+                ["Active acne", metrics.clinical_scores.active_acne],
+                ["Skin quality", metrics.clinical_scores.skin_quality],
+                ["Wrinkles (1–5)", metrics.clinical_scores.wrinkle_severity],
+                ["Sagging & volume", metrics.clinical_scores.sagging_volume],
+                ["Under-eye", metrics.clinical_scores.under_eye],
+                ["Hair health", metrics.clinical_scores.hair_health],
+              ].map(([label, v]) =>
+                typeof v === "number" ? (
+                  <Text key={label} style={styles.clinicalLine}>
+                    {label}: <Text style={styles.clinicalNum}>{v.toFixed(1)}</Text>
+                  </Text>
+                ) : null
+              )}
+              {metrics.clinical_scores.pigmentation_model === null ? (
+                <Text style={styles.clinicalMuted}>Pigmentation (model): no dataset</Text>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={styles.scoreFloat}>
             <Text style={styles.scoreKicker}>YOUR SKIN HEALTH</Text>
@@ -373,6 +426,24 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#27272a",
   },
+  clinicalBox: {
+    marginTop: 18,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 1,
+    borderColor: "#e4e4e7",
+  },
+  clinicalKicker: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    color: "#71717a",
+  },
+  clinicalHint: { marginTop: 6, fontSize: 11, color: "#71717a" },
+  clinicalLine: { marginTop: 8, fontSize: 13, color: "#27272a" },
+  clinicalNum: { fontWeight: "700" },
+  clinicalMuted: { marginTop: 8, fontSize: 12, color: "#a1a1aa", fontStyle: "italic" },
   scoreFloat: {
     marginTop: 28,
     marginHorizontal: -8,

@@ -19,6 +19,16 @@ import {
 
 type ScanStep = "upload" | "confirm" | "naming" | "scanning" | "results";
 
+interface ClinicalScores {
+  active_acne?: number;
+  skin_quality?: number;
+  wrinkle_severity?: number;
+  sagging_volume?: number;
+  under_eye?: number;
+  hair_health?: number;
+  pigmentation_model?: number | null;
+}
+
 interface ScanMetrics {
   acne: number;
   pigmentation: number;
@@ -26,6 +36,7 @@ interface ScanMetrics {
   hydration: number;
   texture: number;
   overall_score: number;
+  clinical_scores?: ClinicalScores;
 }
 
 interface DetectedRegion {
@@ -320,7 +331,8 @@ export default function ScanPage() {
           AI face scan
         </h1>
         <p className="mt-1 text-center text-sm text-zinc-600">
-          Face only — capture {N_CAPTURES} guided photos for analysis
+          One front-face photo — your report includes scores, clinical 1–5 metrics, and annotated
+          findings
         </p>
       </motion.header>
 
@@ -409,23 +421,21 @@ export default function ScanPage() {
               id="scan-file-input"
               type="file"
               accept="image/*"
-              multiple
               className="sr-only"
               onChange={handleInputChange}
             />
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#E0F0ED]">
               <ImagePlus className="h-8 w-8 text-[#6B8E8E]" />
             </div>
-            <p className="mb-1 font-semibold text-zinc-900">Drop {N_CAPTURES} face photos</p>
+            <p className="mb-1 font-semibold text-zinc-900">Drop one face photo</p>
             <p className="mb-6 text-sm text-zinc-600">
-              Same order as below (front through left profile), or use the camera for guided
-              captures
+              Clear front view, good lighting — or use the camera below
             </p>
             <label
               htmlFor="scan-file-input"
               className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50"
             >
-              Choose {N_CAPTURES} files
+              Choose photo
             </label>
           </div>
 
@@ -483,7 +493,20 @@ export default function ScanPage() {
             <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-zinc-400">
               Preview
             </p>
-            {/* 3+2 portrait collage — avoids ultra-wide “strip” crops from 5 skinny columns */}
+            {N_CAPTURES === 1 ? (
+              <figure className="mx-auto flex max-w-[280px] flex-col gap-2">
+                <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-200/80">
+                  <img
+                    src={captures[0].preview}
+                    alt={FACE_SCAN_CAPTURE_STEPS[0].title}
+                    className="h-full w-full object-cover object-center"
+                  />
+                </div>
+                <figcaption className="text-center text-sm font-medium text-zinc-600">
+                  {FACE_SCAN_CAPTURE_STEPS[0].title}
+                </figcaption>
+              </figure>
+            ) : (
             <div className="grid grid-cols-6 gap-2">
               {captures.slice(0, 3).map((c, i) => (
                 <figure key={`${c.label}-${i}`} className="col-span-2 flex flex-col gap-1.5">
@@ -517,6 +540,7 @@ export default function ScanPage() {
                 </figure>
               ))}
             </div>
+            )}
           </div>
           <div className="flex gap-4">
             <button
@@ -555,8 +579,17 @@ export default function ScanPage() {
         >
           <div className="mx-auto max-w-md overflow-hidden rounded-[22px] border border-zinc-100 bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
             <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-zinc-400">
-              Photos in this scan
+              Photo in this scan
             </p>
+            {N_CAPTURES === 1 ? (
+              <div className="relative mx-auto aspect-[3/4] max-w-[200px] overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-200/80">
+                <img
+                  src={captures[0].preview}
+                  alt=""
+                  className="h-full w-full object-cover object-center grayscale-[15%]"
+                />
+              </div>
+            ) : (
             <div className="grid grid-cols-6 gap-2">
               {captures.slice(0, 3).map((c, i) => (
                 <div
@@ -583,6 +616,7 @@ export default function ScanPage() {
                 </div>
               ))}
             </div>
+            )}
           </div>
           {scanError ? (
             <p
@@ -640,9 +674,7 @@ export default function ScanPage() {
                   <Sparkles className="h-6 w-6 text-teal-600" />
                 </motion.div>
                 <p className="text-lg font-semibold text-zinc-900">Scanning…</p>
-                <p className="mt-1 text-sm text-zinc-600">
-                  AI is analyzing your face ({N_CAPTURES} photos)
-                </p>
+                <p className="mt-1 text-sm text-zinc-600">AI is analyzing your photo…</p>
                 <motion.div
                   className="absolute left-0 right-0 z-10 h-1 bg-teal-500 shadow-[0_0_16px_rgba(20,184,166,0.5)]"
                   initial={{ top: "0%" }}
@@ -677,6 +709,9 @@ export default function ScanPage() {
               hydration: scanResults.metrics.hydration,
               wrinkles: scanResults.metrics.wrinkles,
               overall_score: scanResults.metrics.overall_score,
+              pigmentation: scanResults.metrics.pigmentation,
+              texture: scanResults.metrics.texture,
+              clinical_scores: scanResults.metrics.clinical_scores,
             }}
             aiSummary={scanResults.ai_summary}
             scanDate={

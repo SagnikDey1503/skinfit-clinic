@@ -6,7 +6,11 @@ import { Download, Mail, Share2, X } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
 import { Cormorant_Garamond } from "next/font/google";
-import type { ReportMetrics, ReportRegion } from "./scanReportTypes";
+import type {
+  ClinicalScores,
+  ReportMetrics,
+  ReportRegion,
+} from "./scanReportTypes";
 import {
   downloadScanReportPdf,
   renderScanReportPdfBlob,
@@ -24,12 +28,45 @@ const TEAL_BAND = "#E0EEEB";
 const PEACH = "#F29C91";
 const BTN = "#6D8C8E";
 
-/** Same frame for all 5 face captures (2 + 3 rows). */
+/** Thumbnail frame for capture gallery */
 const FACE_CAPTURE_FRAME =
   "relative mx-auto aspect-[3/4] w-[72px] overflow-hidden rounded-xl bg-zinc-200/80 ring-1 ring-[rgba(0,0,0,0.1)] sm:w-[88px] md:w-[96px]";
+const FACE_CAPTURE_FRAME_SINGLE =
+  "relative mx-auto aspect-[3/4] w-full max-w-[200px] overflow-hidden rounded-2xl bg-zinc-200/80 ring-1 ring-[rgba(0,0,0,0.12)] sm:max-w-[240px]";
 
-const LOREM_PROFILE =
-  "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.";
+const CLINICAL_ROWS: {
+  key: keyof ClinicalScores;
+  label: string;
+}[] = [
+  { key: "active_acne", label: "Active acne" },
+  { key: "skin_quality", label: "Skin quality" },
+  { key: "wrinkle_severity", label: "Wrinkles (severity 1–5)" },
+  { key: "sagging_volume", label: "Sagging & volume" },
+  { key: "under_eye", label: "Under-eye" },
+  { key: "hair_health", label: "Hair health" },
+  { key: "pigmentation_model", label: "Pigmentation (model)" },
+];
+
+function regionMarkerColor(issue: string): string {
+  const x = issue.toLowerCase();
+  if (x.includes("acne")) return "#dc2626";
+  if (x.includes("wrinkle")) return "#7c3aed";
+  if (x.includes("pigment")) return "#d97706";
+  if (x.includes("texture")) return "#0d9488";
+  return "#6b7280";
+}
+
+function clinicalBar(score: number) {
+  const pct = Math.min(100, Math.max(0, ((score - 1) / 4) * 100));
+  return (
+    <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-zinc-200/90">
+      <div
+        className="h-full rounded-full bg-zinc-700 transition-[width] duration-700"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
 
 const CAUSES_P1 =
   "Environmental factors such as UV exposure, seasonal dryness, and urban pollution can accentuate texture irregularities and uneven tone. A consistent barrier-focused routine helps mitigate these stressors.";
@@ -141,6 +178,8 @@ export interface SkinScanReportBodyProps {
   regions: ReportRegion[];
   metrics: ReportMetrics;
   aiSummary?: string;
+  /** Model overlay (wrinkle tint + acne circles); preferred over dot markers when set. */
+  annotatedImageUrl?: string;
   scanDate: Date;
   autoDownload?: boolean;
   autoCloseAfterDownload?: boolean;
@@ -159,9 +198,10 @@ export function SkinScanReportBody({
   skinType = "Dry",
   imageUrl,
   faceCaptureGallery,
-  regions: _regions,
+  regions,
   metrics,
   aiSummary,
+  annotatedImageUrl,
   scanDate,
   autoDownload = false,
   autoCloseAfterDownload = false,
@@ -180,6 +220,13 @@ export function SkinScanReportBody({
   const [shareDone, setShareDone] = useState(false);
   const overall = clamp(metrics.overall_score);
   const lastScanLabel = formatDistanceToNow(scanDate, { addSuffix: true });
+  const overlayUrl = annotatedImageUrl?.trim() || "";
+  const showAnnotatedSection =
+    overlayUrl.length > 0 || (regions.length > 0 && imageUrl?.trim());
+  const showDotMarkers = overlayUrl.length === 0 && regions.length > 0;
+  const heroIntro =
+    aiSummary?.trim() ||
+    `Your latest scan shows an overall score of ${overall}% on our 0–100 scale (higher is better). Detailed scores and photo markers are below.`;
 
   const resolvedPhotos = useMemo(() => {
     if (faceCaptureGallery && faceCaptureGallery.length > 0) {
@@ -434,9 +481,27 @@ export function SkinScanReportBody({
 
       <div className="relative px-5 pb-10 pt-9 sm:px-9 sm:pb-12">
         <p className="text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-          Face captures
+          {resolvedPhotos.length === 1 ? "Your scan photo" : "Face captures"}
         </p>
-        {row2Photos.length > 0 ? (
+        {resolvedPhotos.length === 1 ? (
+          <div className="mx-auto mt-6 flex justify-center">
+            <figure className="flex flex-col items-center gap-2">
+              <div className={FACE_CAPTURE_FRAME_SINGLE}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={resolvedPhotos[0].imageUrl}
+                  alt={resolvedPhotos[0].label}
+                  className="h-full w-full object-cover object-center"
+                  crossOrigin={galleryImgCrossOrigin(resolvedPhotos[0].imageUrl)}
+                />
+              </div>
+              <figcaption className="text-center text-[11px] font-medium text-zinc-600">
+                {resolvedPhotos[0].label}
+              </figcaption>
+            </figure>
+          </div>
+        ) : null}
+        {resolvedPhotos.length > 1 && row2Photos.length > 0 ? (
           <div className="mx-auto mt-5 grid w-full max-w-md grid-cols-2 justify-items-center gap-x-6 gap-y-3 sm:max-w-lg sm:gap-x-8">
             {row2Photos.map((item, idx) => (
               <figure
@@ -459,7 +524,7 @@ export function SkinScanReportBody({
             ))}
           </div>
         ) : null}
-        {row3Photos.length > 0 ? (
+        {resolvedPhotos.length > 1 && row3Photos.length > 0 ? (
           <div className="mx-auto mt-4 grid w-full max-w-md grid-cols-3 justify-items-center gap-x-2 gap-y-3 sm:mt-5 sm:max-w-lg sm:gap-x-4">
             {row3Photos.map((item, idx) => (
               <figure
@@ -486,6 +551,60 @@ export function SkinScanReportBody({
           <p className="mt-6 text-center text-sm text-zinc-500">
             No face capture images for this scan.
           </p>
+        ) : null}
+
+        {showAnnotatedSection ? (
+          <div className="mx-auto mt-10 max-w-sm break-inside-avoid">
+            <p className="text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+              Annotated findings
+            </p>
+            <p className="mt-2 text-center text-[11px] leading-snug text-zinc-600">
+              {overlayUrl
+                ? "Warm tint highlights wrinkle-prone regions; red circles mark acne detections (same view as the analysis tool)."
+                : "Markers show where the model flagged concerns (acne, wrinkles, etc.)."}
+            </p>
+            <div className="relative mx-auto mt-4 aspect-[3/4] w-full max-w-[280px] overflow-hidden rounded-2xl bg-zinc-200 ring-1 ring-zinc-300/80">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={overlayUrl || imageUrl}
+                alt={
+                  overlayUrl
+                    ? "Scan with wrinkle and acne overlay"
+                    : "Scan with detection markers"
+                }
+                className="h-full w-full object-cover object-center"
+                crossOrigin={galleryImgCrossOrigin(overlayUrl || imageUrl)}
+              />
+              {showDotMarkers
+                ? regions.map((r, i) => (
+                    <div
+                      key={`${r.issue}-${i}-${r.coordinates.x}-${r.coordinates.y}`}
+                      className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-md"
+                      style={{
+                        left: `${r.coordinates.x}%`,
+                        top: `${r.coordinates.y}%`,
+                        backgroundColor: regionMarkerColor(r.issue),
+                      }}
+                      title={r.issue}
+                    />
+                  ))
+                : null}
+            </div>
+            <ul className="mt-4 flex flex-wrap justify-center gap-2 text-[10px] text-zinc-600">
+              {["Acne", "Wrinkle", "Pigmentation", "Texture"].map((label) => (
+                <li
+                  key={label}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white/90 px-2 py-1 ring-1 ring-zinc-200/80"
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: regionMarkerColor(label) }}
+                  />
+                  {label}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
       </div>
       </div>
@@ -516,7 +635,7 @@ export function SkinScanReportBody({
             Skin type: {skinType}
           </p>
           <p className="mt-5 text-[14px] leading-[1.7] text-zinc-600">
-            {LOREM_PROFILE}
+            {heroIntro}
           </p>
         </motion.div>
 
@@ -575,6 +694,59 @@ export function SkinScanReportBody({
           </div>
         </motion.div>
 
+        {metrics.clinical_scores ? (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.14, duration: 0.4, ease: easeOut }}
+            className="mx-auto mt-8 w-full max-w-xl break-inside-avoid"
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              Model scores (1–5)
+            </p>
+            <p className="mt-1 text-[12px] leading-snug text-zinc-600">
+              Severity-style outputs from the analysis engine (higher = more concern). Shown
+              alongside the summary scores above.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {CLINICAL_ROWS.map(({ key, label }) => {
+                const v = metrics.clinical_scores![key];
+                if (key === "pigmentation_model") {
+                  if (v === undefined) return null;
+                  if (v === null) {
+                    return (
+                      <div
+                        key={key}
+                        className="rounded-xl border border-white/80 bg-white/60 px-3 py-2.5 shadow-sm"
+                      >
+                        <span className="text-[11px] font-semibold text-zinc-700">
+                          {label}
+                        </span>
+                        <p className="mt-1 text-[10px] text-zinc-500">No dataset available</p>
+                      </div>
+                    );
+                  }
+                }
+                if (typeof v !== "number") return null;
+                return (
+                  <div
+                    key={key}
+                    className="rounded-xl border border-white/80 bg-white/90 px-3 py-2.5 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-zinc-800">{label}</span>
+                      <span className="text-[12px] font-semibold tabular-nums text-zinc-900">
+                        {v.toFixed(1)}
+                      </span>
+                    </div>
+                    {clinicalBar(v)}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        ) : null}
+
         <div className="relative z-10 mx-auto mt-8 flex w-full min-w-0 max-w-lg justify-center sm:mt-10">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -622,7 +794,7 @@ export function SkinScanReportBody({
         </div>
 
         <div
-          className="relative mt-12 break-inside-avoid border-t border-white px-0 py-10 sm:mt-14 sm:py-12"
+          className="relative mt-12 break-inside-avoid border-t border-white px-6 py-10 sm:mt-14 sm:px-10 sm:py-12 md:px-14"
           style={{
             background: `linear-gradient(180deg, ${TEAL_BAND} 0%, #d8ebe6 100%)`,
           }}
@@ -638,8 +810,9 @@ export function SkinScanReportBody({
                 Overview
               </h3>
               <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
-                {aiSummary?.trim() ||
-                  "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early."}
+                {aiSummary?.trim()
+                  ? "Use the clinical bars and photo markers to see what this scan emphasized. Compare future scans for trends—this is educational, not a medical diagnosis."
+                  : "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early."}
               </p>
               <p className="mt-5 text-[14px] leading-[1.75] text-zinc-700">
                 {OVERVIEW_P2}

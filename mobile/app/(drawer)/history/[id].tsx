@@ -37,9 +37,19 @@ type ScanDetail = {
     overall_score: number;
     pigmentation: number;
     texture: number;
+    clinical_scores?: {
+      active_acne?: number;
+      skin_quality?: number;
+      wrinkle_severity?: number;
+      sagging_volume?: number;
+      under_eye?: number;
+      hair_health?: number;
+      pigmentation_model?: number | null;
+    };
   };
   aiSummary: string | null;
   scanDateIso: string;
+  annotatedImageUrl?: string;
 };
 
 /** Always open the list — `router.back()` is wrong when this screen was opened from Scan (or elsewhere). */
@@ -85,7 +95,11 @@ export default function ScanDetailScreen() {
     if (!row) return;
     setPdfLoading(true);
     try {
-      const imageUrl = await embedScanImageForPdf(row.imageUrl, token);
+      const pdfSrc =
+        row.annotatedImageUrl?.startsWith("data:") && row.annotatedImageUrl.length > 64
+          ? row.annotatedImageUrl
+          : row.imageUrl;
+      const imageUrl = await embedScanImageForPdf(pdfSrc, token);
       const payload: ScanReportPdfPayload = {
         userName: row.userName,
         userAge: row.userAge,
@@ -153,6 +167,7 @@ export default function ScanDetailScreen() {
         userSkinType={row.userSkinType}
         scanTitle={row.scanTitle}
         imageSource={resolveAuthenticatedScanImageSource(row.imageUrl, token)}
+        annotatedOverlayUri={row.annotatedImageUrl}
         regions={row.regions}
         metrics={row.metrics}
         aiSummary={row.aiSummary}

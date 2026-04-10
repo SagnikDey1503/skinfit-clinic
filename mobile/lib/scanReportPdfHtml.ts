@@ -1,8 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
 
-const LOREM_PROFILE =
-  "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.";
-
 const CAUSES_P1 =
   "Environmental factors such as UV exposure, seasonal dryness, and urban pollution can accentuate texture irregularities and uneven tone. A consistent barrier-focused routine helps mitigate these stressors.";
 const CAUSES_P2 =
@@ -47,6 +44,10 @@ export type ScanReportPdfPayload = {
  * across pages when the engine supports break-inside.
  */
 export function buildScanReportPdfHtml(p: ScanReportPdfPayload): string {
+  const overall = clamp(p.metrics.overall_score);
+  const heroIntro =
+    p.aiSummary?.trim() ||
+    `Your latest scan shows an overall score of ${overall}% on our 0–100 scale (higher is better). Detailed scores and photo markers are below.`;
   const displayTitle = (() => {
     const raw = p.scanTitle?.trim() ?? "";
     if (!raw) return "";
@@ -58,10 +59,10 @@ export function buildScanReportPdfHtml(p: ScanReportPdfPayload): string {
 
   const scanDate = new Date(p.scanDateIso);
   const lastScanLabel = formatDistanceToNow(scanDate, { addSuffix: true });
-  const overall = clamp(p.metrics.overall_score);
   const overview =
-    p.aiSummary?.trim() ||
-    "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early.";
+    p.aiSummary?.trim()
+      ? "Use the clinical bars and photo markers to see what this scan emphasized. Compare future scans for trends—this is educational, not a medical diagnosis."
+      : "Your skin shows a balanced profile with room to optimize hydration and maintain clarity. Continue tracking changes after each scan to spot trends early.";
 
   const imgSrc = JSON.stringify(p.imageUrl);
   const donutDeg = overall * 3.6;
@@ -325,7 +326,7 @@ export function buildScanReportPdfHtml(p: ScanReportPdfPayload): string {
               <h1>Hello ${esc(p.userName)}</h1>
               ${displayTitle ? `<p class="age-line" style="margin-top:6px;font-weight:600;color:#3f3f46">${esc(displayTitle)}</p>` : ""}
               <p class="age-line">Age: ${p.userAge} yrs <span style="color:#a1a1aa">·</span> Skin type: ${esc(p.userSkinType)}</p>
-              <p class="body-copy">${esc(LOREM_PROFILE)}</p>
+              <p class="body-copy">${esc(heroIntro)}</p>
             </div>
             <div class="hero-cell hero-mid">
               <div class="face"><img src=${imgSrc} alt="Your scan" /></div>

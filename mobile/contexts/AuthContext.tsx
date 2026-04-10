@@ -63,23 +63,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const res = await fetch(apiUrl("/api/auth/login"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Skinfit-Client": "native",
-      },
-      body: JSON.stringify({ email: email.trim(), password }),
-    });
-    const data = (await res.json().catch(() => ({}))) as {
+    let res: Response;
+    try {
+      res = await fetch(apiUrl("/api/auth/login"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Skinfit-Client": "native",
+        },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+    } catch {
+      throw new Error(
+        "Cannot reach the server. Check your internet and EXPO_PUBLIC_API_URL."
+      );
+    }
+
+    const text = await res.text().catch(() => "");
+    let data: {
       ok?: boolean;
       token?: string;
       user?: AuthUser;
       message?: string;
       error?: string;
-    };
+    } = {};
+    try {
+      data = text ? (JSON.parse(text) as typeof data) : {};
+    } catch {
+      data = {};
+    }
     if (!res.ok) {
-      throw new Error(data.message || data.error || "Sign in failed.");
+      throw new Error(
+        data.message ||
+          data.error ||
+          `Sign in failed (HTTP ${res.status}). Server may be unavailable.`
+      );
     }
     if (!data.token || !data.user) {
       throw new Error("Server did not return a session token.");

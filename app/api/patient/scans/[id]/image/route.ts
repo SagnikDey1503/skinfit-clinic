@@ -39,7 +39,7 @@ export async function GET(
   const iRaw = urlObj.searchParams.get("i");
   const index =
     iRaw === null || iRaw === "" ? 0 : Number.parseInt(iRaw, 10);
-  if (!Number.isFinite(index) || index < 0 || index > 4) {
+  if (!Number.isFinite(index) || index < 0) {
     return NextResponse.json({ error: "INVALID_INDEX" }, { status: 400 });
   }
 
@@ -53,10 +53,16 @@ export async function GET(
   }
 
   const multi = row.faceCaptureImages;
+  const maxIdx =
+    multi && multi.length > 0 ? multi.length - 1 : 0;
+  if (index > maxIdx) {
+    return NextResponse.json({ error: "INVALID_INDEX" }, { status: 400 });
+  }
+
   let url = "";
 
-  if (multi && multi.length === 5 && multi[index]?.dataUri) {
-    url = multi[index].dataUri.trim();
+  if (multi && multi.length > index && multi[index]?.dataUri) {
+    url = multi[index]!.dataUri.trim();
   } else if (index === 0) {
     url = row.imageUrl?.trim() ?? "";
   } else {

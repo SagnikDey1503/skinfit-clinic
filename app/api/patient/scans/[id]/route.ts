@@ -4,6 +4,10 @@ import { db } from "@/src/db";
 import { scans, users } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
 import { parseScanRegions } from "@/src/lib/parseScanAnnotations";
+import {
+  parseClinicalScores,
+  parseScanOverlayDataUri,
+} from "@/src/lib/parseClinicalScores";
 import { FACE_SCAN_CAPTURE_STEPS } from "@/src/lib/faceScanCaptures";
 import { patientScanImagePath } from "@/src/lib/patientScanImagePath";
 
@@ -42,6 +46,7 @@ export async function GET(
         annotations: true,
         createdAt: true,
         faceCaptureImages: true,
+        scores: true,
       },
     }),
   ]);
@@ -51,9 +56,11 @@ export async function GET(
   }
 
   const regions = parseScanRegions(row.annotations);
+  const clinical_scores = parseClinicalScores(row.scores);
+  const annotatedImageUrl = parseScanOverlayDataUri(row.scores);
 
   const faceCaptureGallery =
-    row.faceCaptureImages && row.faceCaptureImages.length === 5
+    row.faceCaptureImages && row.faceCaptureImages.length >= 1
       ? row.faceCaptureImages.map((entry, i) => ({
           label: FACE_SCAN_CAPTURE_STEPS[i]?.title ?? entry.label,
           imageUrl: `${patientScanImagePath(row.id)}?i=${i}`,
@@ -77,8 +84,10 @@ export async function GET(
       overall_score: row.overallScore,
       pigmentation: row.pigmentation,
       texture: row.texture,
+      ...(clinical_scores ? { clinical_scores } : {}),
     },
     aiSummary: row.aiSummary,
     scanDateIso: row.createdAt.toISOString(),
+    ...(annotatedImageUrl ? { annotatedImageUrl } : {}),
   });
 }

@@ -13,11 +13,13 @@ export interface ScanReportPageClientProps {
   userEmail: string | null;
   scanTitle: string | null;
   imageUrl: string;
-  /** When set (5 face captures), report shows all photos in a collage. */
+  /** When set (one or more captures), report shows thumbnails / collage. */
   faceCaptureGallery?: Array<{ label: string; imageUrl: string }>;
   regions: ReportRegion[];
   metrics: ReportMetrics;
   aiSummary: string | null;
+  /** Wrinkle tint + acne circles from analyzer (data URI). */
+  annotatedImageUrl?: string | null;
   scanDateIso: string;
   autoDownload?: boolean;
   autoCloseAfterDownload?: boolean;
@@ -33,6 +35,7 @@ export function ScanReportPageClient({
   regions,
   metrics,
   aiSummary,
+  annotatedImageUrl = null,
   scanDateIso,
   autoDownload = false,
   autoCloseAfterDownload = false,
@@ -139,6 +142,7 @@ export function ScanReportPageClient({
           regions={regions}
           metrics={metrics}
           aiSummary={aiSummary ?? undefined}
+          annotatedImageUrl={annotatedImageUrl ?? undefined}
           scanDate={scanDate}
           autoDownload={autoDownload}
           autoCloseAfterDownload={autoCloseAfterDownload}

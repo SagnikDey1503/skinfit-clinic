@@ -39,11 +39,11 @@ export default function ScanScreen() {
   const nextIndex = uris.length;
   const isComplete = uris.length >= N;
 
-  async function takeNextPhoto() {
+  async function takePhoto() {
     if (isComplete) return;
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert("Camera", "Allow camera access to capture your face scan photos.");
+      Alert.alert("Camera", "Allow camera access to capture your face scan photo.");
       return;
     }
     const res = await ImagePicker.launchCameraAsync({
@@ -51,31 +51,23 @@ export default function ScanScreen() {
       cameraType: ImagePicker.CameraType.front,
     });
     if (!res.canceled && res.assets[0]?.uri) {
-      setUris((prev) => [...prev, res.assets[0].uri]);
+      setUris([res.assets[0].uri]);
       setResultId(null);
     }
   }
 
-  async function pickFiveFromLibrary() {
+  async function pickFromLibrary() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert("Photos", "Allow photo library access to choose images.");
+      Alert.alert("Photos", "Allow photo library access to choose an image.");
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
       ...pickerOptions,
-      allowsMultipleSelection: true,
-      selectionLimit: N,
+      allowsMultipleSelection: false,
     });
-    if (res.canceled || !res.assets?.length) return;
-    if (res.assets.length !== N) {
-      Alert.alert(
-        "AI face scan",
-        `Select exactly ${N} photos in order (front through left). You picked ${res.assets.length}.`
-      );
-      return;
-    }
-    setUris(res.assets.map((a) => a.uri));
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    setUris([res.assets[0].uri]);
     setResultId(null);
   }
 
@@ -86,23 +78,22 @@ export default function ScanScreen() {
 
   async function runScan() {
     if (!token || uris.length !== N) {
-      Alert.alert("AI face scan", `Capture or choose all ${N} face photos first.`);
+      Alert.alert("AI face scan", "Add one front-face photo first.");
       return;
     }
     setBusy(true);
     try {
       const form = new FormData();
       form.append("scanName", scanName.trim() || "Untitled Scan");
-      uris.forEach((uri, i) => {
-        const ext = uri.split(".").pop()?.toLowerCase();
-        const mime =
-          ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
-        form.append("images", {
-          uri,
-          name: `face-${FACE_SCAN_CAPTURE_STEPS[i].id}.${ext === "png" ? "png" : "jpg"}`,
-          type: mime,
-        } as unknown as Blob);
-      });
+      const uri = uris[0];
+      const ext = uri.split(".").pop()?.toLowerCase();
+      const mime =
+        ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+      form.append("image", {
+        uri,
+        name: `face-${FACE_SCAN_CAPTURE_STEPS[0].id}.${ext === "png" ? "png" : "jpg"}`,
+        type: mime,
+      } as unknown as Blob);
 
       const res = await apiFetch("/api/scan", token, { method: "POST", body: form });
       const data = (await res.json()) as {
@@ -129,8 +120,8 @@ export default function ScanScreen() {
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
       <Text style={styles.title}>AI face scan</Text>
       <Text style={styles.sub}>
-        Face only — we use {N} photos (front, smile, eyes closed, right, left). Results match the
-        website.
+        One clear front-face photo. Your report includes scores, clinical 1–5 metrics, and
+        markers for findings — same as the website.
       </Text>
 
       <View style={styles.stepsBox}>
@@ -151,43 +142,39 @@ export default function ScanScreen() {
       />
 
       <Text style={styles.progress}>
-        {isComplete ? `All ${N} photos ready` : `Photo ${nextIndex + 1} of ${N}: ${FACE_SCAN_CAPTURE_STEPS[nextIndex]?.title ?? ""}`}
+        {isComplete
+          ? "Photo ready"
+          : `Step: ${FACE_SCAN_CAPTURE_STEPS[nextIndex]?.title ?? "Front face"}`}
       </Text>
 
       <View style={styles.photoActions}>
         <Pressable
           style={[styles.btnHalf, styles.btnCamera, busy && styles.disabled]}
-          onPress={takeNextPhoto}
+          onPress={takePhoto}
           disabled={busy || isComplete}
         >
-          <Text style={styles.btnText}>{isComplete ? "All captured" : "Take photo"}</Text>
+          <Text style={styles.btnText}>{isComplete ? "Photo added" : "Take photo"}</Text>
         </Pressable>
         <Pressable
           style={[styles.btnHalf, styles.btnGallery, busy && styles.disabled]}
-          onPress={pickFiveFromLibrary}
+          onPress={pickFromLibrary}
           disabled={busy}
         >
-          <Text style={styles.btnTextDark}>Choose {N} photos</Text>
+          <Text style={styles.btnTextDark}>Choose photo</Text>
         </Pressable>
       </View>
 
       {uris.length > 0 ? (
         <View style={styles.previewRow}>
           {uris.map((u, i) => (
-            <Image key={`${u}-${i}`} source={{ uri: u }} style={styles.thumb} resizeMode="cover" />
+            <Image key={`${u}-${i}`} source={{ uri: u }} style={styles.thumbLarge} resizeMode="cover" />
           ))}
         </View>
       ) : null}
 
-      {uris.length > 0 && !isComplete ? (
+      {uris.length > 0 ? (
         <Pressable style={styles.linkBtn} onPress={clearPhotos}>
-          <Text style={styles.linkMuted}>Start over</Text>
-        </Pressable>
-      ) : null}
-
-      {isComplete ? (
-        <Pressable style={styles.linkBtn} onPress={clearPhotos}>
-          <Text style={styles.linkMuted}>Retake all</Text>
+          <Text style={styles.linkMuted}>Retake</Text>
         </Pressable>
       ) : null}
 
@@ -274,10 +261,10 @@ const styles = StyleSheet.create({
     marginTop: 16,
     justifyContent: "center",
   },
-  thumb: {
-    width: 56,
-    height: 72,
-    borderRadius: 8,
+  thumbLarge: {
+    width: 200,
+    height: 267,
+    borderRadius: 12,
     backgroundColor: "#e4e4e7",
   },
   linkBtn: { marginTop: 12, alignItems: "center" },

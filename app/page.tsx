@@ -172,9 +172,13 @@ export default function Home() {
             }}
             className="absolute inset-0 flex flex-col items-center justify-center"
           >
-            <h2 className="mb-12 text-center text-4xl font-bold tracking-tight text-white md:text-5xl">
+            <h2 className="mb-4 text-center text-4xl font-bold tracking-tight text-white md:text-5xl">
               Proprietary 8-Engine Analysis
             </h2>
+            <p className="mb-12 max-w-xl px-4 text-center text-sm leading-relaxed text-zinc-400 md:text-base">
+              One front-face photo in the app — multi-metric scores, clinical 1–5 readouts, and
+              annotated findings on your report.
+            </p>
 
             {/* Abstract facial scanning geometry */}
             <div className="relative mb-16">

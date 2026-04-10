@@ -13,6 +13,8 @@ import {
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
 import { utcInstantToClinicWallYmdHm } from "@/src/lib/clinicSlotUtcInstant";
 import { localCalendarYmd, dateOnlyFromYmd, ymdFromDateOnly } from "@/src/lib/date-only";
+import { parseClinicalScores } from "@/src/lib/parseClinicalScores";
+import { parseScanRegions } from "@/src/lib/parseScanAnnotations";
 import OpenAI from "openai";
 import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "@/src/lib/routine";
 
@@ -30,6 +32,8 @@ type ChatScan = {
   hydration: number;
   texture: number;
   aiSummary: string | null;
+  annotations: unknown;
+  scores: unknown;
 };
 
 type ChatVisitNote = {
@@ -87,6 +91,35 @@ function truncate(s: string, max: number): string {
   return `${str.slice(0, max - 1)}…`;
 }
 
+/** Compact text for chat context; 1–5 clinical = higher is more concern. */
+function formatClinicalScoresLine(scoresJson: unknown, maxLen: number): string {
+  const c = parseClinicalScores(scoresJson);
+  if (!c) return "";
+  const parts: string[] = [];
+  if (typeof c.active_acne === "number") parts.push(`active_acne ${c.active_acne}`);
+  if (typeof c.skin_quality === "number") parts.push(`skin_quality ${c.skin_quality}`);
+  if (typeof c.wrinkle_severity === "number") parts.push(`wrinkles_1-5 ${c.wrinkle_severity}`);
+  if (typeof c.sagging_volume === "number") parts.push(`sagging_volume ${c.sagging_volume}`);
+  if (typeof c.under_eye === "number") parts.push(`under_eye ${c.under_eye}`);
+  if (typeof c.hair_health === "number") parts.push(`hair_health ${c.hair_health}`);
+  if (c.pigmentation_model === null) parts.push("pigmentation_model n/a");
+  else if (typeof c.pigmentation_model === "number")
+    parts.push(`pigmentation_model ${c.pigmentation_model}`);
+  if (!parts.length) return "";
+  const line = `Clinical model (1–5, higher = more concern): ${parts.join(", ")}`;
+  return truncate(line, maxLen);
+}
+
+/** Region markers from scan (issue + approximate face % position). */
+function formatAnnotationsLine(annotationsJson: unknown, maxLen: number): string {
+  const regions = parseScanRegions(annotationsJson);
+  if (!regions.length) return "";
+  const bits = regions.map(
+    (r) => `${r.issue}~${Math.round(r.coordinates.x)}%,${Math.round(r.coordinates.y)}%`
+  );
+  return truncate(`Findings map: ${bits.join("; ")}`, maxLen);
+}
+
 function summarizeRoutineSteps(
   steps: boolean[] | null | undefined,
   labels: readonly string[]
@@ -123,8 +156,17 @@ function buildPatientContext(params: {
     reminders,
   } = params;
 
+  const latestExtra = latestScan
+    ? [
+        formatClinicalScoresLine(latestScan.scores, 280),
+        formatAnnotationsLine(latestScan.annotations, 260),
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+
   const latestScanLine = latestScan
-    ? `Latest scan (${ymdFromDateOnly(latestScan.createdAt)}): overall ${latestScan.overallScore}/100, acne ${latestScan.acne}, pigmentation ${latestScan.pigmentation}, wrinkles ${latestScan.wrinkles}, hydration ${latestScan.hydration}, texture ${latestScan.texture}. AI summary: ${truncate(latestScan.aiSummary ?? "N/A", 220)}`
+    ? `Latest scan (${ymdFromDateOnly(latestScan.createdAt)}, id ${latestScan.id}${latestScan.scanName ? ` "${truncate(latestScan.scanName, 40)}"` : ""}): summary scores 0–100 (higher = better) — overall ${latestScan.overallScore}, acne ${latestScan.acne}, pigmentation ${latestScan.pigmentation}, wrinkles ${latestScan.wrinkles}, hydration ${latestScan.hydration}, texture ${latestScan.texture}. AI summary: ${truncate(latestScan.aiSummary ?? "N/A", 220)}${latestExtra ? ` ${latestExtra}` : ""}`
     : `No scans found yet.`;
 
   const recentScansLines =
@@ -132,7 +174,10 @@ function buildPatientContext(params: {
       ? recentScans
           .map((s) => {
             const date = ymdFromDateOnly(s.createdAt);
-            return `- ${date}: overall ${s.overallScore}/100 (acne ${s.acne}, pigmentation ${s.pigmentation}, wrinkles ${s.wrinkles}, hydration ${s.hydration}, texture ${s.texture})`;
+            const clin = formatClinicalScoresLine(s.scores, 120);
+            const ann = formatAnnotationsLine(s.annotations, 100);
+            const tail = [clin, ann].filter(Boolean).join(" ");
+            return `- ${date} (id ${s.id}): overall ${s.overallScore}/100 (acne ${s.acne}, pigmentation ${s.pigmentation}, wrinkles ${s.wrinkles}, hydration ${s.hydration}, texture ${s.texture})${tail ? ` | ${tail}` : ""}`;
           })
           .join("\n")
       : `- No recent scans.`;
@@ -194,7 +239,7 @@ function buildPatientContext(params: {
     ``,
     latestScanLine,
     ``,
-    `Recent scans (higher score = better skin health):\n${recentScansLines}`,
+    `Recent scans: 0–100 summary metrics below mean better skin; separate "Clinical model (1–5)" means higher = more concern. Lines may include findings map (approximate face positions).\n${recentScansLines}`,
     ``,
     `Visit / treatment notes:\n${visitNotesLines}`,
     ``,
@@ -215,7 +260,9 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "You must not diagnose. Provide general educational guidance and conservative next steps.",
     "You should explain what is normal vs not normal after routines/procedures and when to contact the clinic.",
     "Use the patient's daily journal (AM/PM routines, mood, sleep, stress, water, journal text) to make your guidance context-aware.",
-    "Treat higher scan scores as better skin health.",
+    "Treat higher 0–100 scan summary scores as better skin health.",
+    "When clinical model scores (1–5) appear in context, higher = more severe; do not confuse with 0–100 metrics.",
+    "Findings map lines (e.g. Acne~45%,52%) describe where the last scan flagged issues on the face image.",
     "Keep your answer short (max ~180 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
     "If the user describes severe symptoms (e.g., trouble breathing, rapidly worsening swelling, spreading infection, severe eye pain), instruct them to seek urgent medical care immediately.",
     "When unsure, say so and suggest contacting the clinic.",
@@ -230,7 +277,8 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "Use the patient's daily journal (AM/PM routines, mood, sleep, stress, water, journal text) to provide safer, personalized after-care suggestions.",
     "Keep your answer short (max ~180 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
     "If the user asks to book or discuss appointments, refer to the clinic support flow and suggest what details to share.",
-    "Treat higher scan scores as better skin health.",
+    "Treat higher 0–100 scan summary scores as better skin health.",
+    "When clinical model scores (1–5) appear, higher = more severe; findings map lines show approximate face locations flagged on scans.",
     "If severe symptoms are described, recommend urgent medical care.",
     "Output format: (1) Assessment (non-diagnostic), (2) Plan, (3) Red flags & contact timing.",
   ].join("\n"),
@@ -241,6 +289,7 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "Be concise. Ask follow-up questions needed for scheduling (preferred date/time, treatment type).",
     "Use the patient's daily journal to tailor follow-up questions and routine reminders.",
     "Use provided upcoming schedule events and next appointment details when possible.",
+    "Patient context may include recent AI face scans (0–100 summaries, optional 1–5 clinical scores, and findings map). Use them only to guide scheduling or general encouragement, not diagnosis.",
     "If the user asks for costs or insurance details and you don't have information, say you don't know and suggest contacting the clinic.",
     "Keep your answer short (max ~160 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
     "Output format: (1) Quick answer, (2) Next steps, (3) What I need from you.",
@@ -333,12 +382,27 @@ export async function POST(req: Request) {
     where: eq(scans.userId, userId),
     orderBy: [desc(scans.createdAt)],
     limit: 1,
+    columns: {
+      id: true,
+      createdAt: true,
+      scanName: true,
+      userId: true,
+      overallScore: true,
+      acne: true,
+      pigmentation: true,
+      wrinkles: true,
+      hydration: true,
+      texture: true,
+      aiSummary: true,
+      annotations: true,
+      scores: true,
+    },
   });
 
   const recentScans = await db.query.scans.findMany({
     where: eq(scans.userId, userId),
     orderBy: [desc(scans.createdAt)],
-    limit: 3,
+    limit: 5,
     columns: {
       id: true,
       userId: true,
@@ -351,6 +415,8 @@ export async function POST(req: Request) {
       texture: true,
       aiSummary: true,
       createdAt: true,
+      annotations: true,
+      scores: true,
     },
   });
 

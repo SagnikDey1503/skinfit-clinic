@@ -113,13 +113,16 @@ export const scans = pgTable("scans", {
   hydration: integer("hydration").notNull(),
   texture: integer("texture").notNull(),
   aiSummary: text("ai_summary"),
-  /** Full Roboflow / AI score object (optional; legacy scans may omit) */
+  /** Optional extended scores (legacy Roboflow + clinical 1–5 features) */
   scores: jsonb("scores").$type<{
-    acneAndInflammation: number;
-    wrinkles: number;
-    pigmentation: number;
-    hydration: number;
-    overallHealth: number;
+    acneAndInflammation?: number;
+    wrinkles?: number;
+    pigmentation?: number;
+    hydration?: number;
+    overallHealth?: number;
+    modelFeatureScores?: Record<string, number | null>;
+    /** Wrinkle + acne overlay JPEG (data URI) from Python analyzer */
+    overlayDataUri?: string;
   }>(),
   /** Bounding-box annotations from Roboflow (optional) */
   annotations: jsonb("annotations").$type<unknown[]>(),
