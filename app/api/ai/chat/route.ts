@@ -91,6 +91,15 @@ function truncate(s: string, max: number): string {
   return `${str.slice(0, max - 1)}…`;
 }
 
+/**
+ * Scan `createdAt` is a real UTC instant; use clinic wall clock (see CLINIC_SLOT_UTC_OFFSET_MINUTES,
+ * default IST) so "today" matches the patient and UTC date lines don't look like the wrong day.
+ */
+function formatScanCreatedForContext(createdAt: Date): string {
+  const { ymd, hm } = utcInstantToClinicWallYmdHm(createdAt);
+  return `${ymd} ${hm}`;
+}
+
 /** Compact text for chat context; 1–5 clinical = higher is more concern. */
 function formatClinicalScoresLine(scoresJson: unknown, maxLen: number): string {
   const c = parseClinicalScores(scoresJson);
@@ -166,18 +175,18 @@ function buildPatientContext(params: {
     : "";
 
   const latestScanLine = latestScan
-    ? `Latest scan (${ymdFromDateOnly(latestScan.createdAt)}, id ${latestScan.id}${latestScan.scanName ? ` "${truncate(latestScan.scanName, 40)}"` : ""}): summary scores 0–100 (higher = better) — overall ${latestScan.overallScore}, acne ${latestScan.acne}, pigmentation ${latestScan.pigmentation}, wrinkles ${latestScan.wrinkles}, hydration ${latestScan.hydration}, texture ${latestScan.texture}. AI summary: ${truncate(latestScan.aiSummary ?? "N/A", 220)}${latestExtra ? ` ${latestExtra}` : ""}`
+    ? `Latest scan (${formatScanCreatedForContext(latestScan.createdAt)} clinic local, id ${latestScan.id}${latestScan.scanName ? ` "${truncate(latestScan.scanName, 40)}"` : ""}): summary scores 0–100 (higher = better) — overall ${latestScan.overallScore}, acne ${latestScan.acne}, pigmentation ${latestScan.pigmentation}, wrinkles ${latestScan.wrinkles}, hydration ${latestScan.hydration}, texture ${latestScan.texture}. AI summary: ${truncate(latestScan.aiSummary ?? "N/A", 220)}${latestExtra ? ` ${latestExtra}` : ""}`
     : `No scans found yet.`;
 
   const recentScansLines =
     recentScans.length > 0
       ? recentScans
           .map((s) => {
-            const date = ymdFromDateOnly(s.createdAt);
+            const when = formatScanCreatedForContext(s.createdAt);
             const clin = formatClinicalScoresLine(s.scores, 120);
             const ann = formatAnnotationsLine(s.annotations, 100);
             const tail = [clin, ann].filter(Boolean).join(" ");
-            return `- ${date} (id ${s.id}): overall ${s.overallScore}/100 (acne ${s.acne}, pigmentation ${s.pigmentation}, wrinkles ${s.wrinkles}, hydration ${s.hydration}, texture ${s.texture})${tail ? ` | ${tail}` : ""}`;
+            return `- ${when} (id ${s.id}): overall ${s.overallScore}/100 (acne ${s.acne}, pigmentation ${s.pigmentation}, wrinkles ${s.wrinkles}, hydration ${s.hydration}, texture ${s.texture})${tail ? ` | ${tail}` : ""}`;
           })
           .join("\n")
       : `- No recent scans.`;
@@ -263,6 +272,7 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "Treat higher 0–100 scan summary scores as better skin health.",
     "When clinical model scores (1–5) appear in context, higher = more severe; do not confuse with 0–100 metrics.",
     "Findings map lines (e.g. Acne~45%,52%) describe where the last scan flagged issues on the face image.",
+    "Scan timestamps in patient context are clinic local date and time (24h, e.g. India IST unless the deployment sets CLINIC_SLOT_UTC_OFFSET_MINUTES). Use them verbatim when the user asks when a scan was taken.",
     "Keep your answer short (max ~180 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
     "If the user describes severe symptoms (e.g., trouble breathing, rapidly worsening swelling, spreading infection, severe eye pain), instruct them to seek urgent medical care immediately.",
     "When unsure, say so and suggest contacting the clinic.",
@@ -279,6 +289,7 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "If the user asks to book or discuss appointments, refer to the clinic support flow and suggest what details to share.",
     "Treat higher 0–100 scan summary scores as better skin health.",
     "When clinical model scores (1–5) appear, higher = more severe; findings map lines show approximate face locations flagged on scans.",
+    "Scan timestamps in context are clinic local (24h); use them when the patient asks when a scan was taken.",
     "If severe symptoms are described, recommend urgent medical care.",
     "Output format: (1) Assessment (non-diagnostic), (2) Plan, (3) Red flags & contact timing.",
   ].join("\n"),
@@ -290,6 +301,7 @@ const ASSISTANT_SYSTEM: Record<AssistantId, string> = {
     "Use the patient's daily journal to tailor follow-up questions and routine reminders.",
     "Use provided upcoming schedule events and next appointment details when possible.",
     "Patient context may include recent AI face scans (0–100 summaries, optional 1–5 clinical scores, and findings map). Use them only to guide scheduling or general encouragement, not diagnosis.",
+    "Scan timestamps in context are clinic local (24h).",
     "If the user asks for costs or insurance details and you don't have information, say you don't know and suggest contacting the clinic.",
     "Keep your answer short (max ~160 words). Always end with a complete sentence. If you are near the output limit, stop early but do not leave an unfinished phrase.",
     "Output format: (1) Quick answer, (2) Next steps, (3) What I need from you.",

@@ -15,11 +15,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { SkinScanReportBodyNative } from "@/components/SkinScanReportBodyNative";
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiError, apiJson } from "@/lib/api";
-import {
-  embedScanImageForPdf,
-  resolveAuthenticatedScanImageSource,
-} from "@/lib/resolveScanImage";
-import { shareScanReportPdf, type ScanReportPdfPayload } from "@/lib/scanReportPdf";
+import { buildScanReportPdfPayload } from "@/lib/buildScanReportPdfPayload";
+import { resolveAuthenticatedScanImageSource } from "@/lib/resolveScanImage";
+import { shareScanReportPdf } from "@/lib/scanReportPdf";
 
 type ScanDetail = {
   scanId: number;
@@ -29,6 +27,7 @@ type ScanDetail = {
   userSkinType: string;
   scanTitle: string | null;
   imageUrl: string;
+  faceCaptureGallery?: Array<{ label: string; imageUrl: string }>;
   regions: { issue: string; coordinates: { x: number; y: number } }[];
   metrics: {
     acne: number;
@@ -95,21 +94,22 @@ export default function ScanDetailScreen() {
     if (!row) return;
     setPdfLoading(true);
     try {
-      const pdfSrc =
-        row.annotatedImageUrl?.startsWith("data:") && row.annotatedImageUrl.length > 64
-          ? row.annotatedImageUrl
-          : row.imageUrl;
-      const imageUrl = await embedScanImageForPdf(pdfSrc, token);
-      const payload: ScanReportPdfPayload = {
-        userName: row.userName,
-        userAge: row.userAge,
-        userSkinType: row.userSkinType,
-        scanTitle: row.scanTitle,
-        imageUrl,
-        metrics: row.metrics,
-        aiSummary: row.aiSummary,
-        scanDateIso: row.scanDateIso,
-      };
+      const payload = await buildScanReportPdfPayload(
+        {
+          userName: row.userName,
+          userAge: row.userAge,
+          userSkinType: row.userSkinType,
+          scanTitle: row.scanTitle,
+          imageUrl: row.imageUrl,
+          faceCaptureGallery: row.faceCaptureGallery,
+          regions: row.regions,
+          metrics: row.metrics,
+          aiSummary: row.aiSummary,
+          scanDateIso: row.scanDateIso,
+          annotatedImageUrl: row.annotatedImageUrl,
+        },
+        token
+      );
       await shareScanReportPdf(payload);
     } catch (e) {
       Alert.alert(

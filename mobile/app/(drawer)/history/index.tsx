@@ -17,10 +17,11 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiError, apiJson } from "@/lib/api";
 import {
-  embedScanImageForPdf,
-  resolveAuthenticatedScanImageSource,
-} from "@/lib/resolveScanImage";
-import { shareScanReportPdf, type ScanReportPdfPayload } from "@/lib/scanReportPdf";
+  buildScanReportPdfPayload,
+  type PatientScanDetailForPdf,
+} from "@/lib/buildScanReportPdfPayload";
+import { resolveAuthenticatedScanImageSource } from "@/lib/resolveScanImage";
+import { shareScanReportPdf } from "@/lib/scanReportPdf";
 
 type ScanRow = {
   id: number;
@@ -42,17 +43,6 @@ type VisitRow = {
   visitDateYmd: string;
   doctorName: string;
   notes: string;
-};
-
-type ScanDetailForPdf = {
-  userName: string;
-  userAge: number;
-  userSkinType: string;
-  scanTitle: string | null;
-  imageUrl: string;
-  metrics: ScanReportPdfPayload["metrics"];
-  aiSummary: string | null;
-  scanDateIso: string;
 };
 
 type HistoryPayload = {
@@ -121,22 +111,12 @@ export default function HistoryListScreen() {
     if (!token) return;
     setPdfScanId(scanId);
     try {
-      const detail = await apiJson<ScanDetailForPdf>(
+      const detail = await apiJson<PatientScanDetailForPdf>(
         `/api/patient/scans/${scanId}`,
         token,
         { method: "GET" }
       );
-      const imageUrl = await embedScanImageForPdf(detail.imageUrl, token);
-      const payload: ScanReportPdfPayload = {
-        userName: detail.userName,
-        userAge: detail.userAge,
-        userSkinType: detail.userSkinType,
-        scanTitle: detail.scanTitle,
-        imageUrl,
-        metrics: detail.metrics,
-        aiSummary: detail.aiSummary,
-        scanDateIso: detail.scanDateIso,
-      };
+      const payload = await buildScanReportPdfPayload(detail, token);
       await shareScanReportPdf(payload);
     } catch (e) {
       Alert.alert(
