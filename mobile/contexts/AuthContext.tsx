@@ -8,8 +8,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Platform } from "react-native";
 
 import { apiUrl } from "@/lib/api";
+import {
+  registerForPushAndSyncToken,
+  unregisterPushToken,
+} from "@/lib/pushNotifications";
 
 const TOKEN_KEY = "skinfit_session_token";
 const USER_KEY = "skinfit_user_json";
@@ -106,14 +111,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await SecureStore.setItemAsync(USER_KEY, JSON.stringify(data.user));
     setUser(data.user);
     setToken(data.token);
+
+    if (Platform.OS !== "web") {
+      void registerForPushAndSyncToken(data.token, {
+        verboseAlerts: false,
+        requestPermission: true,
+      });
+    }
   }, []);
 
   const signOut = useCallback(async () => {
+    const prevToken = token;
+    if (prevToken && Platform.OS !== "web") {
+      try {
+        await unregisterPushToken(prevToken);
+      } catch {
+        /* offline or expired session — still sign out locally */
+      }
+    }
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
     setToken(null);
     setUser(null);
-  }, []);
+  }, [token]);
 
   const applySessionFromProfile = useCallback(
     async (data: {
@@ -123,6 +143,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.token) {
         await SecureStore.setItemAsync(TOKEN_KEY, data.token);
         setToken(data.token);
+        if (Platform.OS !== "web") {
+          void registerForPushAndSyncToken(data.token, {
+            verboseAlerts: false,
+            requestPermission: true,
+          });
+        }
       }
       const next: AuthUser = {
         id: data.user.id,

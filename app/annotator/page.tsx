@@ -15,9 +15,40 @@ import {
   Moon,
   Info,
   X,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Undo2,
+  Redo2,
+  Download,
 } from "lucide-react";
 
-const CLINICAL_TAXONOMY: Record<string, string[]> = {
+const ALL_CATEGORIES = [
+  "Active Acne",
+  "Acne Scars",
+  "Skin Quality",
+  "Pigmentation",
+  "Wrinkles",
+  "Sagging & Volume",
+  "Under-Eye",
+  "Hair Health",
+] as const;
+
+type Category = (typeof ALL_CATEGORIES)[number];
+
+/** Path / line / eraser only apply to these four. */
+const DRAWABLE_CATEGORIES: Category[] = [
+  "Active Acne",
+  "Acne Scars",
+  "Pigmentation",
+  "Under-Eye",
+];
+
+const SCORE_ONLY_CATEGORIES: Category[] = ALL_CATEGORIES.filter(
+  (c) => !DRAWABLE_CATEGORIES.includes(c)
+);
+
+const CLINICAL_TAXONOMY: Record<Category, string[]> = {
   "Active Acne": ["Comedones (Black/Whiteheads)", "Papules / Pustules", "Nodules / Cysts", "Inflammation (Erythema)"],
   "Acne Scars": ["Ice-pick", "Boxcar", "Rolling"],
   "Skin Quality": ["Pore Density & Size", "Oiliness", "Dryness / Flaking"],
@@ -28,7 +59,25 @@ const CLINICAL_TAXONOMY: Record<string, string[]> = {
   "Hair Health": ["Hairline Recession", "Miniaturization", "Overall Density"],
 };
 
-const CATEGORY_COLORS: Record<string, string> = {
+type CategoryEntry = { spec: string; score: number };
+
+function defaultEntry(cat: Category): CategoryEntry {
+  const specs = CLINICAL_TAXONOMY[cat];
+  return { spec: specs[0] ?? "", score: 1 };
+}
+
+function fullDefaults(): Record<Category, CategoryEntry> {
+  return Object.fromEntries(ALL_CATEGORIES.map((c) => [c, defaultEntry(c)])) as Record<
+    Category,
+    CategoryEntry
+  >;
+}
+
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.25;
+
+const CATEGORY_COLORS: Record<Category, string> = {
   "Active Acne": "rgb(239, 68, 68)",
   "Acne Scars": "rgb(185, 28, 28)",
   "Skin Quality": "rgb(34, 197, 94)",
@@ -51,6 +100,13 @@ interface Annotation {
 }
 
 let annotationIdCounter = 0;
+
+function cloneAnnotations(list: Annotation[]): Annotation[] {
+  return list.map((a) => ({
+    ...a,
+    points: a.points.map((p) => ({ ...p })),
+  }));
+}
 
 function getNormalizedPoint(
   e: React.MouseEvent,
@@ -84,12 +140,46 @@ export default function AnnotatorPage() {
   const lastScrollTime = useRef(Date.now());
 
   const [images, setImages] = useState<string[]>([]);
+  /** Original file names from upload (same order as `images`). */
+  const [imageMeta, setImageMeta] = useState<{ name: string }[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [activeTool, setActiveTool] = useState<string>("path");
-  const [activeCategory, setActiveCategory] = useState<string>("Active Acne");
-  const [activeSpec, setActiveSpec] = useState<string>("Comedones (Black/Whiteheads)");
-  const [severity, setSeverity] = useState<number>(1);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [activeCategory, setActiveCategory] = useState<Category>("Active Acne");
+  const [perImageByCategory, setPerImageByCategory] = useState<
+    Record<number, Partial<Record<Category, Partial<CategoryEntry>>>>
+  >({});
+  const [annotationHistory, setAnnotationHistory] = useState<{
+    snapshots: Annotation[][];
+    index: number;
+  }>({ snapshots: [[]], index: 0 });
+
+  const annotations = annotationHistory.snapshots[annotationHistory.index];
+  const canUndoAnnotation = annotationHistory.index > 0;
+  const canRedoAnnotation = annotationHistory.index < annotationHistory.snapshots.length - 1;
+
+  const commitAnnotations = useCallback((updater: (prev: Annotation[]) => Annotation[]) => {
+    setAnnotationHistory((ah) => {
+      const cur = ah.snapshots[ah.index];
+      const next = updater(cur);
+      const list = ah.snapshots.slice(0, ah.index + 1);
+      list.push(cloneAnnotations(next));
+      return { snapshots: list, index: list.length - 1 };
+    });
+  }, []);
+
+  const undoAnnotation = useCallback(() => {
+    setAnnotationHistory((ah) => ({
+      ...ah,
+      index: Math.max(0, ah.index - 1),
+    }));
+  }, []);
+
+  const redoAnnotation = useCallback(() => {
+    setAnnotationHistory((ah) => ({
+      ...ah,
+      index: Math.min(ah.snapshots.length - 1, ah.index + 1),
+    }));
+  }, []);
   const [currentStrokePoints, setCurrentStrokePoints] = useState<{ x: number; y: number }[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
@@ -102,15 +192,74 @@ export default function AnnotatorPage() {
   } | null>(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imgNatural, setImgNatural] = useState<{ w: number; h: number } | null>(null);
 
   React.useEffect(() => {
     document.documentElement.classList.toggle("dark", isDarkMode);
   }, [isDarkMode]);
 
   React.useEffect(() => {
+    if (!DRAWABLE_CATEGORIES.includes(activeCategory) && (activeTool === "path" || activeTool === "line")) {
+      setActiveTool("eraser");
+    }
+  }, [activeCategory, activeTool]);
+
+  React.useEffect(() => {
+    setImgNatural(null);
+  }, [currentIndex, images]);
+
+  React.useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || images.length === 0) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+      setImageZoom((z) =>
+        Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((z + delta) * 100) / 100))
+      );
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [images.length, currentIndex]);
+
+  React.useEffect(() => {
     const handleClick = () => setContextMenu(null);
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
+  }, []);
+
+  const categoryState = React.useMemo(() => {
+    const base = fullDefaults();
+    const patch = perImageByCategory[currentIndex] ?? {};
+    const out = { ...base };
+    for (const c of ALL_CATEGORIES) {
+      if (patch[c]) out[c] = { ...base[c], ...patch[c] };
+    }
+    return out;
+  }, [perImageByCategory, currentIndex]);
+
+  const setCategorySpec = useCallback((imageIndex: number, cat: Category, spec: string) => {
+    setPerImageByCategory((prev) => {
+      const cur = prev[imageIndex] ?? {};
+      const prevEntry = { ...defaultEntry(cat), ...cur[cat] };
+      return {
+        ...prev,
+        [imageIndex]: { ...cur, [cat]: { ...prevEntry, spec } },
+      };
+    });
+  }, []);
+
+  const setCategoryScore = useCallback((imageIndex: number, cat: Category, score: number) => {
+    setPerImageByCategory((prev) => {
+      const cur = prev[imageIndex] ?? {};
+      const prevEntry = { ...defaultEntry(cat), ...cur[cat] };
+      return {
+        ...prev,
+        [imageIndex]: { ...cur, [cat]: { ...prevEntry, score } },
+      };
+    });
   }, []);
 
   const goPrev = useCallback(() => {
@@ -124,6 +273,8 @@ export default function AnnotatorPage() {
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       if (images.length === 0) return;
+      if (e.ctrlKey || e.metaKey) return;
+
       const now = Date.now();
       if (now - lastScrollTime.current < 400) return;
 
@@ -144,13 +295,14 @@ export default function AnnotatorPage() {
       const pt = getNormalizedPoint(e, canvasRef.current);
       if (!pt) return;
 
-      if (activeTool === "path" || activeTool === "line") {
+      const canDraw = DRAWABLE_CATEGORIES.includes(activeCategory);
+      if ((activeTool === "path" || activeTool === "line") && canDraw) {
         setIsDrawing(true);
         setCurrentStrokePoints([pt]);
       }
       // Eraser: handled by shape onClick
     },
-    [images.length, activeTool]
+    [images.length, activeTool, activeCategory]
   );
 
   const handleMouseMove = useCallback(
@@ -165,16 +317,22 @@ export default function AnnotatorPage() {
 
   const handleMouseUp = useCallback(() => {
     if (!isDrawing) return;
+    if (!DRAWABLE_CATEGORIES.includes(activeCategory)) {
+      setIsDrawing(false);
+      setCurrentStrokePoints([]);
+      return;
+    }
+    const { spec, score } = categoryState[activeCategory];
     if (activeTool === "path" && currentStrokePoints.length >= 3) {
       const color = CATEGORY_COLORS[activeCategory] ?? "rgb(156, 163, 175)";
-      setAnnotations((prev) => [
+      commitAnnotations((prev) => [
         ...prev,
         {
           id: `ann-${++annotationIdCounter}`,
           imageIndex: currentIndex,
           category: activeCategory,
-          spec: activeSpec,
-          severity,
+          spec,
+          severity: score,
           color,
           type: "path",
           points: [...currentStrokePoints],
@@ -182,14 +340,14 @@ export default function AnnotatorPage() {
       ]);
     } else if (activeTool === "line" && currentStrokePoints.length >= 2) {
       const color = CATEGORY_COLORS[activeCategory] ?? "rgb(156, 163, 175)";
-      setAnnotations((prev) => [
+      commitAnnotations((prev) => [
         ...prev,
         {
           id: `ann-${++annotationIdCounter}`,
           imageIndex: currentIndex,
           category: activeCategory,
-          spec: activeSpec,
-          severity,
+          spec,
+          severity: score,
           color,
           type: "line",
           points: [...currentStrokePoints],
@@ -198,7 +356,15 @@ export default function AnnotatorPage() {
     }
     setIsDrawing(false);
     setCurrentStrokePoints([]);
-  }, [isDrawing, activeTool, currentStrokePoints, currentIndex, activeCategory, activeSpec, severity]);
+  }, [
+    isDrawing,
+    activeTool,
+    currentStrokePoints,
+    currentIndex,
+    activeCategory,
+    categoryState,
+    commitAnnotations,
+  ]);
 
   React.useEffect(() => {
     window.addEventListener("mouseup", handleMouseUp);
@@ -208,21 +374,63 @@ export default function AnnotatorPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
-    const urls = Array.from(files).map((f) => URL.createObjectURL(f));
+    const list = Array.from(files);
+    const urls = list.map((f) => URL.createObjectURL(f));
+    const names = list.map((f) => ({ name: f.name }));
     setImages((prev) => [...prev, ...urls]);
+    setImageMeta((prev) => [...prev, ...names]);
     setCurrentIndex(0);
     e.target.value = "";
   };
 
-  const handleCategoryChange = (cat: string) => {
-    setActiveCategory(cat);
-    const specs = CLINICAL_TAXONOMY[cat] ?? [];
-    setActiveSpec(specs[0] ?? "");
-  };
+  const exportAnnotationsJson = useCallback(() => {
+    if (images.length === 0) return;
 
-  const deleteAnnotation = (id: string) => {
-    setAnnotations((prev) => prev.filter((a) => a.id !== id));
-  };
+    const labelsByImageIndex: Record<string, Record<Category, CategoryEntry>> = {};
+    for (let i = 0; i < images.length; i++) {
+      const base = fullDefaults();
+      const patch = perImageByCategory[i] ?? {};
+      const merged = { ...base };
+      for (const c of ALL_CATEGORIES) {
+        if (patch[c]) merged[c] = { ...base[c], ...patch[c] };
+      }
+      labelsByImageIndex[String(i)] = merged;
+    }
+
+    const payload = {
+      schemaVersion: 1,
+      app: "skinnfit-clinical-annotator",
+      exportedAt: new Date().toISOString(),
+      note:
+        "Images are not embedded. Keep your original files and match them to `images[].fileName` and `images[].index`. Annotation points are normalized 0–1 relative to image width/height.",
+      imageCount: images.length,
+      images: images.map((_, i) => ({
+        index: i,
+        fileName: imageMeta[i]?.name ?? `image-${i + 1}`,
+      })),
+      labelsByImageIndex,
+      annotations: cloneAnnotations(annotations),
+    };
+
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    a.href = url;
+    a.download = `skinnfit-annotations-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [images, imageMeta, perImageByCategory, annotations]);
+
+  const deleteAnnotation = useCallback(
+    (id: string) => {
+      commitAnnotations((prev) => prev.filter((a) => a.id !== id));
+    },
+    [commitAnnotations]
+  );
 
   const handleShapeClick = useCallback(
     (e: React.MouseEvent, id: string) => {
@@ -231,11 +439,21 @@ export default function AnnotatorPage() {
         deleteAnnotation(id);
       }
     },
-    [activeTool]
+    [activeTool, deleteAnnotation]
   );
 
-  const specs = CLINICAL_TAXONOMY[activeCategory] ?? [];
   const currentAnnotations = annotations.filter((a) => a.imageIndex === currentIndex);
+  const activeSpecs = CLINICAL_TAXONOMY[activeCategory];
+  const activeIsDrawable = DRAWABLE_CATEGORIES.includes(activeCategory);
+  const { spec: activeSpec, score: activeScore } = categoryState[activeCategory];
+
+  const displaySize = React.useMemo(() => {
+    if (!imgNatural) return null;
+    return {
+      w: Math.max(1, Math.round(imgNatural.w * imageZoom)),
+      h: Math.max(1, Math.round(imgNatural.h * imageZoom)),
+    };
+  }, [imgNatural, imageZoom]);
 
   return (
     <div className="flex h-screen flex-col bg-slate-50 text-slate-900 dark:bg-zinc-950 dark:text-zinc-100">
@@ -252,7 +470,27 @@ export default function AnnotatorPage() {
             Skinnfit Clinical Annotator
           </h1>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="mr-1 flex items-center gap-1 border-r border-slate-200 pr-2 dark:border-zinc-700 sm:mr-2 sm:pr-3">
+            <button
+              type="button"
+              onClick={undoAnnotation}
+              disabled={!canUndoAnnotation}
+              className="rounded-lg p-2 text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-35 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white dark:disabled:opacity-30"
+              title="Undo last shape (annotations)"
+            >
+              <Undo2 className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={redoAnnotation}
+              disabled={!canRedoAnnotation}
+              className="rounded-lg p-2 text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-35 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white dark:disabled:opacity-30"
+              title="Redo annotation"
+            >
+              <Redo2 className="h-5 w-5" />
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setIsDarkMode((d) => !d)}
@@ -279,6 +517,16 @@ export default function AnnotatorPage() {
           />
           <button
             type="button"
+            onClick={exportAnnotationsJson}
+            disabled={images.length === 0}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+            title="Download all labels and shapes as JSON (images not included — keep your files)"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Export JSON</span>
+          </button>
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-4 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-teal-400"
           >
@@ -289,9 +537,9 @@ export default function AnnotatorPage() {
       </nav>
 
       {/* Main Content */}
-      <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[1fr_320px]">
-        {/* Left Canvas */}
-        <div className="relative flex flex-col items-center justify-center overflow-hidden bg-slate-100 p-6 dark:bg-zinc-950">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(160px,42vh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[1fr_minmax(320px,22rem)] lg:grid-rows-1">
+        {/* Left Canvas — scrollable, no clipping; zoom keeps full image visible */}
+        <div className="relative flex min-h-0 flex-col items-center overflow-auto bg-slate-100 p-4 dark:bg-zinc-950 lg:p-6">
           {images.length === 0 ? (
             <div className="flex flex-col items-center gap-4 text-slate-500 dark:text-zinc-500">
               <div className="rounded-full border-2 border-dashed border-slate-300 p-8 dark:border-zinc-700">
@@ -308,18 +556,56 @@ export default function AnnotatorPage() {
             </div>
           ) : (
             <>
-              <div className="relative flex max-h-[calc(100vh-180px)] w-full max-w-4xl items-center justify-center">
+              <div className="sticky top-0 z-30 mb-3 flex w-full max-w-md flex-wrap items-center justify-center gap-1.5 self-center rounded-xl border-2 border-slate-400 bg-white px-3 py-2.5 shadow-md ring-1 ring-slate-900/10 dark:border-zinc-500 dark:bg-zinc-800 dark:ring-white/10">
+                <button
+                  type="button"
+                  onClick={() => setImageZoom((z) => Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 100) / 100))}
+                  className="rounded-lg border border-slate-300 bg-slate-100 p-2 text-slate-900 transition-colors hover:border-teal-500 hover:bg-teal-50 hover:text-teal-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-teal-400 dark:hover:bg-teal-950/80 dark:hover:text-teal-200"
+                  title="Zoom out"
+                >
+                  <ZoomOut className="h-4 w-4 shrink-0 stroke-[2.5]" />
+                </button>
+                <span className="min-w-[3.5rem] text-center text-sm font-bold tabular-nums text-slate-950 dark:text-white">
+                  {Math.round(imageZoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setImageZoom((z) => Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 100) / 100))}
+                  className="rounded-lg border border-slate-300 bg-slate-100 p-2 text-slate-900 transition-colors hover:border-teal-500 hover:bg-teal-50 hover:text-teal-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-teal-400 dark:hover:bg-teal-950/80 dark:hover:text-teal-200"
+                  title="Zoom in"
+                >
+                  <ZoomIn className="h-4 w-4 shrink-0 stroke-[2.5]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageZoom(1)}
+                  className="rounded-lg border border-slate-300 bg-slate-100 p-2 text-slate-900 transition-colors hover:border-teal-500 hover:bg-teal-50 hover:text-teal-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-teal-400 dark:hover:bg-teal-950/80 dark:hover:text-teal-200"
+                  title="Reset zoom"
+                >
+                  <RotateCcw className="h-4 w-4 shrink-0 stroke-[2.5]" />
+                </button>
+                <span className="w-full px-1 text-center text-[11px] font-medium leading-snug text-slate-800 dark:text-zinc-200 sm:w-auto">
+                  Ctrl+scroll or Cmd+scroll to zoom
+                </span>
+              </div>
+
+              <div className="relative mx-auto flex w-full min-w-0 flex-1 justify-center px-14">
                 <button
                   type="button"
                   onClick={goPrev}
-                  className="absolute left-2 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-slate-900/80 text-white transition-colors hover:bg-slate-800 dark:bg-zinc-900/80 dark:hover:bg-zinc-800"
+                  className="absolute left-0 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-slate-900/80 text-white transition-colors hover:bg-slate-800 dark:bg-zinc-900/80 dark:hover:bg-zinc-800"
                 >
                   <ChevronLeft className="h-6 w-6" />
                 </button>
 
                 <div
                   ref={canvasRef}
-                  className="relative inline-block max-h-[calc(100vh-180px)] select-none"
+                  className="relative shrink-0 select-none"
+                  style={
+                    displaySize
+                      ? { width: displaySize.w, height: displaySize.h }
+                      : { width: "fit-content", height: "fit-content" }
+                  }
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
@@ -340,8 +626,16 @@ export default function AnnotatorPage() {
                   <img
                     src={images[currentIndex]}
                     alt={`Scan ${currentIndex + 1}`}
-                    className="max-h-full w-auto object-contain"
                     draggable={false}
+                    onLoad={(e) => {
+                      const t = e.currentTarget;
+                      setImgNatural({ w: t.naturalWidth, h: t.naturalHeight });
+                    }}
+                    className={
+                      displaySize
+                        ? "absolute inset-0 block h-full w-full object-contain"
+                        : "block max-h-[min(90dvh,1200px)] w-auto max-w-full object-contain"
+                    }
                   />
 
                   {/* SVG Drawing Layer */}
@@ -421,31 +715,31 @@ export default function AnnotatorPage() {
                 <button
                   type="button"
                   onClick={goNext}
-                  className="absolute right-2 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-slate-900/80 text-white transition-colors hover:bg-slate-800 dark:bg-zinc-900/80 dark:hover:bg-zinc-800"
+                  className="absolute right-0 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-slate-900/80 text-white transition-colors hover:bg-slate-800 dark:bg-zinc-900/80 dark:hover:bg-zinc-800"
                 >
                   <ChevronRight className="h-6 w-6" />
                 </button>
               </div>
-              <p className="mt-4 text-sm text-slate-500 dark:text-zinc-500">
+              <p className="mt-4 shrink-0 text-sm text-slate-500 dark:text-zinc-500">
                 Image {currentIndex + 1} of {images.length}
               </p>
             </>
           )}
         </div>
 
-        {/* Right Sidebar */}
-        <aside className="flex flex-col overflow-y-auto border-l border-slate-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+        {/* Right Sidebar — classic layout: tools, category grid, spec (drawable only), score for all */}
+        <aside className="flex min-h-0 flex-col overflow-y-auto border-t border-slate-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 lg:border-l lg:border-t-0 lg:p-6">
           <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
-            <Crosshair className="h-4 w-4 text-teal-400" />
+            <Crosshair className="h-4 w-4 shrink-0 text-teal-400" />
             Annotation Tools
           </h2>
 
-          {/* Toolbox */}
           <div className="mb-4 flex gap-2">
             <button
               type="button"
               onClick={() => setActiveTool("path")}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              disabled={images.length === 0 || !activeIsDrawable}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 activeTool === "path"
                   ? "bg-teal-500 text-zinc-950"
                   : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
@@ -457,7 +751,8 @@ export default function AnnotatorPage() {
             <button
               type="button"
               onClick={() => setActiveTool("line")}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              disabled={images.length === 0 || !activeIsDrawable}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 activeTool === "line"
                   ? "bg-teal-500 text-zinc-950"
                   : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
@@ -469,7 +764,8 @@ export default function AnnotatorPage() {
             <button
               type="button"
               onClick={() => setActiveTool("eraser")}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+              disabled={images.length === 0}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:opacity-40 ${
                 activeTool === "eraser"
                   ? "bg-teal-500 text-zinc-950"
                   : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
@@ -480,65 +776,99 @@ export default function AnnotatorPage() {
             </button>
           </div>
 
-          {/* Category */}
-          <div className="mb-6">
-            <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-zinc-500">
-              Category
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {Object.keys(CLINICAL_TAXONOMY).map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => handleCategoryChange(cat)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    activeCategory === cat
-                      ? "bg-teal-500 text-zinc-950"
-                      : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
+          <div className="mb-4 space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-teal-600 dark:text-teal-400">
+                Score + specification + draw
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {DRAWABLE_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setActiveCategory(cat)}
+                    className={`rounded-lg px-2 py-1.5 text-left text-[11px] font-medium leading-snug transition-colors ${
+                      activeCategory === cat
+                        ? "bg-teal-500 text-zinc-950"
+                        : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-500">
+                Score only
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {SCORE_ONLY_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setActiveCategory(cat)}
+                    className={`rounded-lg px-2 py-1.5 text-left text-[11px] font-medium leading-snug transition-colors ${
+                      activeCategory === cat
+                        ? "bg-teal-500 text-zinc-950"
+                        : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Specification */}
-          <div className="mb-6">
-            <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-zinc-500">
-              Specification
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {specs.map((spec) => (
-                <button
-                  key={spec}
-                  type="button"
-                  onClick={() => setActiveSpec(spec)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    activeSpec === spec
-                      ? "bg-teal-500/80 text-white"
-                      : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  {spec}
-                </button>
-              ))}
+          {activeIsDrawable ? (
+            <div className="mb-4">
+              <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-zinc-500">
+                Specification
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {activeSpecs.map((spec) => (
+                  <button
+                    key={spec}
+                    type="button"
+                    disabled={images.length === 0}
+                    onClick={() => setCategorySpec(currentIndex, activeCategory, spec)}
+                    className={`rounded-lg px-2 py-1.5 text-left text-[11px] font-medium leading-snug transition-colors disabled:opacity-40 ${
+                      activeSpec === spec
+                        ? "bg-teal-500/80 text-white"
+                        : "bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {spec}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <p className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-400">
+              <strong className="text-slate-800 dark:text-zinc-200">Score only</strong> — set severity below. Use{" "}
+              <span className="text-teal-700 dark:text-teal-400">Score + specification + draw</span> to pick a spec
+              and paint regions.
+            </p>
+          )}
 
-          {/* Severity */}
           <div className="mb-6">
             <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-zinc-500">
-              Severity (1–5)
+              Severity score (1–5) · {activeCategory}
             </label>
-            <div className="flex gap-2">
+            <p className="mb-2 text-[11px] text-slate-500 dark:text-zinc-500">
+              Applies to this category on the current image (all eight have a score; drawable ones also use it on new
+              strokes).
+            </p>
+            <div className="flex flex-wrap gap-2">
               {[1, 2, 3, 4, 5].map((n) => (
                 <button
                   key={n}
                   type="button"
-                  onClick={() => setSeverity(n)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-semibold transition-colors ${
-                    severity === n
+                  disabled={images.length === 0}
+                  onClick={() => setCategoryScore(currentIndex, activeCategory, n)}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-semibold transition-colors disabled:opacity-40 ${
+                    activeScore === n
                       ? "bg-amber-500 text-zinc-950"
                       : "bg-slate-200 text-slate-600 hover:bg-slate-300 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
                   }`}
@@ -549,15 +879,14 @@ export default function AnnotatorPage() {
             </div>
           </div>
 
-          {/* Annotation List */}
-          <div className="mt-auto pt-6">
+          <div className="mt-auto border-t border-slate-200 pt-4 dark:border-zinc-800">
             <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-zinc-500">
-              Annotation List
+              Annotation list
             </label>
-            <div className="space-y-2">
+            <div className="max-h-48 space-y-2 overflow-y-auto">
               {currentAnnotations.length === 0 ? (
                 <p className="py-4 text-center text-xs text-slate-500 dark:text-zinc-500">
-                  Use Path or Line tool to draw on the image
+                  Use Path or Line on a drawable category to draw on the image
                 </p>
               ) : (
                 currentAnnotations.map((ann) => (
@@ -597,36 +926,36 @@ export default function AnnotatorPage() {
         >
           {/* Top Section: Mini-Toolbar */}
           <div className="border-b border-slate-200 bg-slate-50 p-2 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="flex justify-between gap-1">
+            <div className="flex flex-col gap-1">
               <button
                 type="button"
-                className={`rounded p-1.5 transition-colors ${
+                className={`flex w-full items-center justify-center gap-2 rounded py-1.5 text-xs transition-colors ${
                   activeTool === "path" ? "bg-teal-500 text-zinc-950" : "text-slate-500 hover:bg-slate-200 hover:text-teal-500 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-teal-400"
                 }`}
                 onClick={() => setActiveTool("path")}
-                title="Path"
               >
                 <Pencil className="h-4 w-4" />
+                Path
               </button>
               <button
                 type="button"
-                className={`rounded p-1.5 transition-colors ${
+                className={`flex w-full items-center justify-center gap-2 rounded py-1.5 text-xs transition-colors ${
                   activeTool === "line" ? "bg-teal-500 text-zinc-950" : "text-slate-500 hover:bg-slate-200 hover:text-teal-500 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-teal-400"
                 }`}
                 onClick={() => setActiveTool("line")}
-                title="Line"
               >
                 <Minus className="h-4 w-4" />
+                Line
               </button>
               <button
                 type="button"
-                className={`rounded p-1.5 transition-colors ${
+                className={`flex w-full items-center justify-center gap-2 rounded py-1.5 text-xs transition-colors ${
                   activeTool === "eraser" ? "bg-teal-500 text-zinc-950" : "text-slate-500 hover:bg-slate-200 hover:text-teal-500 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-teal-400"
                 }`}
                 onClick={() => setActiveTool("eraser")}
-                title="Eraser"
               >
                 <Eraser className="h-4 w-4" />
+                Eraser
               </button>
             </div>
           </div>
@@ -635,7 +964,7 @@ export default function AnnotatorPage() {
           <div className="max-h-[250px] overflow-y-auto">
             {contextMenu.step === "category" && (
               <div className="py-1">
-                {Object.keys(CLINICAL_TAXONOMY).map((cat) => (
+                {DRAWABLE_CATEGORIES.map((cat) => (
                   <button
                     key={cat}
                     type="button"
@@ -664,7 +993,7 @@ export default function AnnotatorPage() {
                 >
                   ← Back
                 </button>
-                {(CLINICAL_TAXONOMY[contextMenu.tempCategory] ?? []).map((spec) => (
+                {(CLINICAL_TAXONOMY[contextMenu.tempCategory as Category] ?? []).map((spec: string) => (
                   <button
                     key={spec}
                     type="button"
@@ -699,9 +1028,10 @@ export default function AnnotatorPage() {
                     type="button"
                     className="w-full cursor-pointer px-4 py-1.5 text-left text-xs text-slate-600 transition-colors hover:bg-teal-500/20 hover:text-teal-600 dark:text-zinc-300 dark:hover:text-teal-400"
                     onClick={() => {
-                      setActiveCategory(contextMenu.tempCategory!);
-                      setActiveSpec(contextMenu.tempSpec!);
-                      setSeverity(n);
+                      const cat = contextMenu.tempCategory as Category;
+                      setActiveCategory(cat);
+                      setCategorySpec(currentIndex, cat, contextMenu.tempSpec!);
+                      setCategoryScore(currentIndex, cat, n);
                       setContextMenu(null);
                     }}
                   >
@@ -736,31 +1066,33 @@ export default function AnnotatorPage() {
             </h2>
             <ol className="space-y-4 text-sm leading-relaxed text-slate-600 dark:text-zinc-300">
               <li>
-                <span className="font-semibold text-slate-900 dark:text-white">1. Upload & Navigate:</span>{" "}
-                Click &apos;Upload Images&apos; to load your dataset. Use a two-finger horizontal trackpad swipe to quickly move between images.
+                <span className="font-semibold text-slate-900 dark:text-white">1. Upload &amp; navigate:</span>{" "}
+                Load images; horizontal two-finger swipe changes the photo. Scroll the image area to see the full
+                picture. Use zoom buttons or Ctrl/Cmd+scroll on the image to zoom (25%–400%).
               </li>
               <li>
-                <span className="font-semibold text-slate-900 dark:text-white">2. Context Menu:</span>{" "}
-                To avoid moving your mouse, simply Right-Click anywhere on the face to open the Context Menu.
+                <span className="font-semibold text-slate-900 dark:text-white">2. Categories:</span>{" "}
+                <strong>Score + specification + draw</strong> lists the four you can annotate on the image.{" "}
+                <strong>Score only</strong> lists the other four (severity 1–5 only).
               </li>
               <li>
-                <span className="font-semibold text-slate-900 dark:text-white">3. Select Taxonomy:</span>{" "}
-                Drill down through the 8-Engine Taxonomy (Category → Specification → Severity 1–5).
+                <span className="font-semibold text-slate-900 dark:text-white">3. Drawing:</span>{" "}
+                Path and Line work only when a drawable category is selected; new strokes use that category&apos;s spec
+                and severity.
               </li>
               <li>
-                <span className="font-semibold text-slate-900 dark:text-white">4. Choose Your Tool:</span>
-                <ul className="mt-2 ml-4 list-disc space-y-1">
-                  <li>
-                    Use the <strong>Path Tool</strong> (Pencil) for distinct areas (Melasma, Erythema, Hair loss). Trace the perimeter to create a translucent shape.
-                  </li>
-                  <li>
-                    Use the <strong>Line Tool</strong> (Minus) for structural mapping (Deep Wrinkles, Crow&apos;s Feet, Jawline sagging).
-                  </li>
-                </ul>
+                <span className="font-semibold text-slate-900 dark:text-white">4. Context menu:</span>{" "}
+                Right-click the image to jump through drawable category, specification, and score.
               </li>
               <li>
-                <span className="font-semibold text-slate-900 dark:text-white">5. Erase Mistakes:</span>{" "}
-                Select the Eraser Tool from the Context Menu toolbar and click any drawn shape to instantly delete it.
+                <span className="font-semibold text-slate-900 dark:text-white">5. Undo / redo:</span>{" "}
+                Top bar — restore or replay the last change to drawn shapes (add or erase).
+              </li>
+              <li>
+                <span className="font-semibold text-slate-900 dark:text-white">6. Save / download:</span>{" "}
+                Use <strong>Export JSON</strong> in the top bar. It downloads scores and specs for every image index,
+                all drawn shapes (coordinates 0–1 vs image size), and original file names from upload. Pixel images are
+                not inside the file — keep those files on disk and match by name/index.
               </li>
             </ol>
           </div>

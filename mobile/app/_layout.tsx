@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 
+import { PushTokenSync } from '@/components/PushTokenSync';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { configureNotificationBehavior } from '@/lib/notificationBehavior';
 
@@ -76,6 +77,7 @@ function RootLayoutNav() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#fdf9f0' }}>
       <StatusBar style="dark" />
       <AuthProvider>
+        <PushTokenSync />
         <ThemeProvider value={theme}>
           <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />

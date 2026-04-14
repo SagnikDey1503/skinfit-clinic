@@ -3,11 +3,31 @@ import { Alert, Platform } from "react-native";
 
 import { apiJson } from "@/lib/api";
 
+export type RegisterPushOptions = {
+  /**
+   * Show Alert dialogs (simulator, denied permission, errors, etc.).
+   * Use false for background sync after login / app resume.
+   * @default true
+   */
+  verboseAlerts?: boolean;
+  /**
+   * If false, only sync when permission is already granted (no OS prompt).
+   * @default true
+   */
+  requestPermission?: boolean;
+};
+
 /**
- * Requests OS permission, obtains Expo push token, POSTs to `/api/user/push-token`.
+ * Requests OS permission (optional), obtains Expo push token, POSTs to `/api/user/push-token`.
  * Returns token string or null. Physical device required (native only).
  */
-export async function registerForPushAndSyncToken(bearerToken: string): Promise<string | null> {
+export async function registerForPushAndSyncToken(
+  bearerToken: string,
+  options: RegisterPushOptions = {}
+): Promise<string | null> {
+  const verboseAlerts = options.verboseAlerts !== false;
+  const requestPermission = options.requestPermission !== false;
+
   if (Platform.OS === "web") {
     return null;
   }
@@ -16,10 +36,12 @@ export async function registerForPushAndSyncToken(bearerToken: string): Promise<
   const Device = await import("expo-device");
 
   if (!Device.isDevice) {
-    Alert.alert(
-      "Simulator",
-      "Push notifications need a physical phone. The in-app bell still shows unread clinic messages."
-    );
+    if (verboseAlerts) {
+      Alert.alert(
+        "Simulator",
+        "Push notifications need a physical phone. The in-app bell still shows unread clinic messages."
+      );
+    }
     return null;
   }
 
@@ -34,15 +56,17 @@ export async function registerForPushAndSyncToken(bearerToken: string): Promise<
 
   const { status: existing } = await Notifications.getPermissionsAsync();
   let final = existing;
-  if (existing !== "granted") {
+  if (existing !== "granted" && requestPermission) {
     const { status } = await Notifications.requestPermissionsAsync();
     final = status;
   }
   if (final !== "granted") {
-    Alert.alert(
-      "Notifications disabled",
-      "Turn on notifications in system Settings to get alerts when the clinic messages you."
-    );
+    if (verboseAlerts && requestPermission) {
+      Alert.alert(
+        "Notifications disabled",
+        "Turn on notifications in system Settings to get alerts when the clinic messages you."
+      );
+    }
     return null;
   }
 
@@ -69,7 +93,9 @@ export async function registerForPushAndSyncToken(bearerToken: string): Promise<
       e instanceof Error
         ? e.message
         : "Could not register. For release builds, add your EAS projectId under expo.extra.eas in app.json.";
-    Alert.alert("Push setup", msg);
+    if (verboseAlerts) {
+      Alert.alert("Push setup", msg);
+    }
     return null;
   }
 }
