@@ -99,6 +99,14 @@ interface Annotation {
   points: { x: number; y: number }[];
 }
 
+type PersistedImage = {
+  id: number;
+  fileName: string;
+  mimeType: string;
+  dataUri: string;
+  sortOrder: number;
+};
+
 let annotationIdCounter = 0;
 
 function cloneAnnotations(list: Annotation[]): Annotation[] {
@@ -194,6 +202,9 @@ export default function AnnotatorPage() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [imageZoom, setImageZoom] = useState(1);
   const [imgNatural, setImgNatural] = useState<{ w: number; h: number } | null>(null);
+  const [isHydrating, setIsHydrating] = useState(true);
+  const [isImportingFolder, setIsImportingFolder] = useState(false);
+  const [lastPersistMessage, setLastPersistMessage] = useState<string>("");
 
   React.useEffect(() => {
     document.documentElement.classList.toggle("dark", isDarkMode);
@@ -208,6 +219,98 @@ export default function AnnotatorPage() {
   React.useEffect(() => {
     setImgNatural(null);
   }, [currentIndex, images]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadInitialData = async () => {
+      try {
+        const [imagesRes, stateRes] = await Promise.all([
+          fetch("/api/annotator/images", { cache: "no-store" }),
+          fetch("/api/annotator/state", { cache: "no-store" }),
+        ]);
+        const imagesJson = await imagesRes.json();
+        const stateJson = await stateRes.json();
+        if (!isMounted) return;
+
+        const persistedImages = (imagesJson.images ?? []) as PersistedImage[];
+        let activeImages = persistedImages;
+
+        // If DB is empty, auto-import from images_face so non-technical users can start immediately.
+        if (activeImages.length === 0) {
+          setLastPersistMessage("Importing images from images_face...");
+          const importRes = await fetch("/api/annotator/import-from-folder", { method: "POST" });
+          const importJson = await importRes.json().catch(() => ({}));
+          if (importRes.ok) {
+            activeImages = (importJson.images ?? []) as PersistedImage[];
+            setLastPersistMessage(
+              `Auto-imported ${importJson.importedCount ?? 0}, skipped ${importJson.skippedCount ?? 0}`
+            );
+          } else {
+            setLastPersistMessage(importJson?.message || importJson?.error || "Auto-import failed");
+          }
+        }
+
+        setImages(activeImages.map((img) => img.dataUri));
+        setImageMeta(activeImages.map((img) => ({ name: img.fileName })));
+
+        const persistedState = stateJson.state;
+        if (persistedState) {
+          setPerImageByCategory((persistedState.perImageByCategory ?? {}) as typeof perImageByCategory);
+          const persistedAnnotations = Array.isArray(persistedState.annotations)
+            ? (persistedState.annotations as Annotation[])
+            : [];
+          setAnnotationHistory({ snapshots: [cloneAnnotations(persistedAnnotations)], index: 0 });
+          const maxCounter = persistedAnnotations.reduce((acc, ann) => {
+            const idNum = Number.parseInt(String(ann.id).replace("ann-", ""), 10);
+            return Number.isFinite(idNum) ? Math.max(acc, idNum) : acc;
+          }, 0);
+          annotationIdCounter = Math.max(annotationIdCounter, maxCounter);
+          setCurrentIndex(
+            Math.max(
+              0,
+              Math.min(
+                (persistedState.currentIndex as number) ?? 0,
+                Math.max(0, activeImages.length - 1)
+              )
+            )
+          );
+        } else {
+          setCurrentIndex(0);
+        }
+      } catch (err) {
+        console.error("Failed to hydrate annotator data", err);
+      } finally {
+        if (isMounted) setIsHydrating(false);
+      }
+    };
+    void loadInitialData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (isHydrating) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch("/api/annotator/state", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            perImageByCategory,
+            annotations,
+            currentIndex,
+          }),
+        });
+        if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+        setLastPersistMessage(`Saved ${new Date().toLocaleTimeString()}`);
+      } catch (err) {
+        console.error("Failed to save annotator state", err);
+        setLastPersistMessage("Save failed");
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [isHydrating, perImageByCategory, annotations, currentIndex]);
 
   React.useEffect(() => {
     const el = canvasRef.current;
@@ -371,17 +474,70 @@ export default function AnnotatorPage() {
     return () => window.removeEventListener("mouseup", handleMouseUp);
   }, [handleMouseUp]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
     const list = Array.from(files);
-    const urls = list.map((f) => URL.createObjectURL(f));
-    const names = list.map((f) => ({ name: f.name }));
-    setImages((prev) => [...prev, ...urls]);
-    setImageMeta((prev) => [...prev, ...names]);
-    setCurrentIndex(0);
+    const imagePayload = await Promise.all(
+      list.map(async (f) => {
+        const dataUri = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result ?? ""));
+          reader.onerror = reject;
+          reader.readAsDataURL(f);
+        });
+        return {
+          fileName: f.name,
+          mimeType: f.type || "image/jpeg",
+          dataUri,
+        };
+      })
+    );
+
+    try {
+      const res = await fetch("/api/annotator/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ images: imagePayload }),
+      });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      const json = await res.json();
+      const created = (json.images ?? []) as PersistedImage[];
+      setImages((prev) => [...prev, ...created.map((img) => img.dataUri)]);
+      setImageMeta((prev) => [...prev, ...created.map((img) => ({ name: img.fileName }))]);
+      setCurrentIndex(0);
+      setLastPersistMessage(`Uploaded ${created.length} image(s)`);
+    } catch (err) {
+      console.error("Failed to upload images", err);
+      setLastPersistMessage("Image upload failed");
+    }
     e.target.value = "";
   };
+
+  const importFromFolder = useCallback(async () => {
+    try {
+      setIsImportingFolder(true);
+      const res = await fetch("/api/annotator/import-from-folder", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) {
+        const msg = json?.message || json?.error || "Import failed";
+        setLastPersistMessage(msg);
+        return;
+      }
+      const all = (json.images ?? []) as PersistedImage[];
+      setImages(all.map((img) => img.dataUri));
+      setImageMeta(all.map((img) => ({ name: img.fileName })));
+      setCurrentIndex(0);
+      setLastPersistMessage(
+        `Imported ${json.importedCount ?? 0}, skipped ${json.skippedCount ?? 0}`
+      );
+    } catch (err) {
+      console.error("Failed to import images from folder", err);
+      setLastPersistMessage("Folder import failed");
+    } finally {
+      setIsImportingFolder(false);
+    }
+  }, []);
 
   const exportAnnotationsJson = useCallback(() => {
     if (images.length === 0) return;
@@ -533,8 +689,22 @@ export default function AnnotatorPage() {
             <Upload className="h-4 w-4" />
             Upload Images
           </button>
+          <button
+            type="button"
+            onClick={importFromFolder}
+            disabled={isImportingFolder}
+            className="inline-flex items-center gap-2 rounded-lg border border-teal-500 px-3 py-2 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-teal-300 dark:hover:bg-teal-950/40"
+            title="Bulk import from root/images_face and save to database"
+          >
+            {isImportingFolder ? "Importing..." : "Import images_face"}
+          </button>
         </div>
       </nav>
+      <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-1.5 text-xs text-slate-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        {isHydrating
+          ? lastPersistMessage || "Loading saved annotator data..."
+          : lastPersistMessage || "All data is persisted to database."}
+      </div>
 
       {/* Main Content */}
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(160px,42vh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[1fr_minmax(320px,22rem)] lg:grid-rows-1">

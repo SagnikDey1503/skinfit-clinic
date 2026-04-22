@@ -325,6 +325,52 @@ export const scheduleEvents = pgTable("schedule_events", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Clinical annotator image library (stored as data URIs for persistence). */
+export const annotatorImages = pgTable(
+  "annotator_images",
+  {
+    id: serial("id").primaryKey(),
+    fileName: varchar("file_name", { length: 255 }).notNull(),
+    mimeType: varchar("mime_type", { length: 100 }).notNull(),
+    dataUri: text("data_uri").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    sortOrderUidx: uniqueIndex("annotator_images_sort_order_uidx").on(table.sortOrder),
+  })
+);
+
+/** Single persisted working state used by the annotator UI. */
+export const annotatorState = pgTable(
+  "annotator_state",
+  {
+    id: serial("id").primaryKey(),
+    scope: varchar("scope", { length: 64 }).notNull().default("default"),
+    perImageByCategory: jsonb("per_image_by_category").$type<
+      Record<string, Record<string, { spec?: string; score?: number }>>
+    >(),
+    annotations: jsonb("annotations").$type<
+      Array<{
+        id: string;
+        imageIndex: number;
+        category: string;
+        spec: string;
+        severity: number;
+        color: string;
+        type: "path" | "line";
+        points: Array<{ x: number; y: number }>;
+      }>
+    >(),
+    currentIndex: integer("current_index").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    scopeUidx: uniqueIndex("annotator_state_scope_uidx").on(table.scope),
+  })
+);
+
 // Relations: users <-> scans (one-to-many)
 export const usersRelations = relations(users, ({ many }) => ({
   scans: many(scans),
