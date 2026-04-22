@@ -4,6 +4,18 @@ import { db } from "@/src/db";
 import { annotatorState } from "@/src/db/schema";
 
 const DEFAULT_SCOPE = "default";
+type AnnotationShape = {
+  id: string;
+  imageIndex: number;
+  category: string;
+  spec: string;
+  severity: number;
+  color: string;
+  type: "path" | "line";
+  points: Array<{ x: number; y: number }>;
+};
+
+type PerImageByCategoryShape = Record<string, Record<string, { spec?: string; score?: number }>>;
 
 export async function GET() {
   const [row] = await db
@@ -28,8 +40,8 @@ export async function GET() {
 export async function PUT(req: Request) {
   const body = (await req.json().catch(() => null)) as
     | {
-        perImageByCategory?: Record<string, Record<string, { spec?: string; score?: number }>>;
-        annotations?: unknown[];
+        perImageByCategory?: PerImageByCategoryShape;
+        annotations?: AnnotationShape[];
         currentIndex?: number;
       }
     | null;
@@ -38,7 +50,10 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "INVALID_JSON_BODY" }, { status: 400 });
   }
 
-  const data = {
+  const data: Pick<
+    typeof annotatorState.$inferInsert,
+    "perImageByCategory" | "annotations" | "currentIndex" | "updatedAt"
+  > = {
     perImageByCategory: body.perImageByCategory ?? {},
     annotations: body.annotations ?? [],
     currentIndex: Math.max(0, Math.floor(body.currentIndex ?? 0)),
