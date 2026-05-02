@@ -68,6 +68,7 @@ export async function GET(request: Request) {
         visitDate: true,
         doctorName: true,
         notes: true,
+        attachments: true,
       },
       orderBy: [desc(visitNotes.visitDate)],
     }),
@@ -78,6 +79,8 @@ export async function GET(request: Request) {
         scanName: scans.scanName,
         audioDataUri: doctorFeedbackVoiceNotes.audioDataUri,
         createdAt: doctorFeedbackVoiceNotes.createdAt,
+        patientListenedAt: doctorFeedbackVoiceNotes.patientListenedAt,
+        patientArchivedAt: doctorFeedbackVoiceNotes.patientArchivedAt,
       })
       .from(doctorFeedbackVoiceNotes)
       .innerJoin(scans, eq(doctorFeedbackVoiceNotes.scanId, scans.id))
@@ -98,7 +101,7 @@ export async function GET(request: Request) {
     return {
       id: s.id,
       scanName: s.scanName,
-      imageUrl: patientScanImagePath(s.id),
+      imageUrl: patientScanImagePath(s.id, { preview: true }),
       overallScore: s.overallScore,
       acne: s.acne,
       pigmentation: s.pigmentation,
@@ -116,20 +119,30 @@ export async function GET(request: Request) {
     visitDateYmd: ymdFromDateOnly(v.visitDate),
     doctorName: v.doctorName,
     notes: v.notes,
+    attachments: v.attachments ?? null,
   }));
 
-  const reportVoiceNotes = reportVoiceRows.map((r) => ({
+  const mapReport = (r: (typeof reportVoiceRows)[number]) => ({
     id: r.id,
     scanId: r.scanId!,
     scanLabel: r.scanName?.trim() || "Report",
     audioDataUri: r.audioDataUri,
     createdAt: r.createdAt.toISOString(),
-  }));
+    listened: r.patientListenedAt != null,
+  });
+
+  const reportVoiceNotes = reportVoiceRows
+    .filter((r) => r.patientArchivedAt == null)
+    .map(mapReport);
+  const reportVoiceNotesArchived = reportVoiceRows
+    .filter((r) => r.patientArchivedAt != null)
+    .map(mapReport);
 
   return NextResponse.json({
     patient,
     scans: scanRecords,
     visitNotes: visitRecords,
     reportVoiceNotes,
+    reportVoiceNotesArchived,
   });
 }

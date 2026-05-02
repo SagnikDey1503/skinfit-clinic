@@ -16,7 +16,7 @@ import { localCalendarYmd, dateOnlyFromYmd, ymdFromDateOnly } from "@/src/lib/da
 import { parseClinicalScores } from "@/src/lib/parseClinicalScores";
 import { parseScanRegions } from "@/src/lib/parseScanAnnotations";
 import OpenAI from "openai";
-import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "@/src/lib/routine";
+import { coerceRoutinePlanList } from "@/src/lib/routine";
 
 type AssistantId = "ai" | "doctor" | "support";
 
@@ -146,6 +146,8 @@ function addDaysUTCNoon(date: Date, days: number): Date {
 
 function buildPatientContext(params: {
   userName: string;
+  routineAmLabels: readonly string[];
+  routinePmLabels: readonly string[];
   latestScan: ChatScan | undefined;
   recentScans: Array<ChatScan>;
   recentVisitNotes: Array<ChatVisitNote>;
@@ -156,6 +158,8 @@ function buildPatientContext(params: {
 }) {
   const {
     userName,
+    routineAmLabels,
+    routinePmLabels,
     latestScan,
     recentScans,
     recentVisitNotes,
@@ -223,8 +227,14 @@ function buildPatientContext(params: {
           .sort((a, b) => b.date.getTime() - a.date.getTime())
           .map((d) => {
             const date = ymdFromDateOnly(d.date);
-            const amSteps = summarizeRoutineSteps(d.routineAmSteps, AM_ROUTINE_ITEMS);
-            const pmSteps = summarizeRoutineSteps(d.routinePmSteps, PM_ROUTINE_ITEMS);
+            const amSteps = summarizeRoutineSteps(
+              d.routineAmSteps,
+              routineAmLabels
+            );
+            const pmSteps = summarizeRoutineSteps(
+              d.routinePmSteps,
+              routinePmLabels
+            );
             const journal = d.journalEntry ? truncate(d.journalEntry, 220) : "N/A";
             return [
               `- ${date}: mood "${truncate(d.mood, 40)}", sleep ${d.sleepHours}h, stress ${d.stressLevel}/10, water ${d.waterGlasses} glasses`,
@@ -507,8 +517,13 @@ export async function POST(req: Request) {
     },
   });
 
+  const routineAmLabels = coerceRoutinePlanList(user?.routinePlanAmItems);
+  const routinePmLabels = coerceRoutinePlanList(user?.routinePlanPmItems);
+
   const patientContext = buildPatientContext({
     userName: user?.name ?? "Patient",
+    routineAmLabels,
+    routinePmLabels,
     latestScan,
     recentScans,
     recentVisitNotes,

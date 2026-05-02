@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -39,11 +40,18 @@ type ScanRow = {
   aiSummary: string | null;
 };
 
+type VisitAttachment = {
+  fileName: string;
+  mimeType: string;
+  dataUri: string;
+};
+
 type VisitRow = {
   id: string;
   visitDateYmd: string;
   doctorName: string;
   notes: string;
+  attachments?: VisitAttachment[] | null;
 };
 
 type ReportVoiceRow = {
@@ -52,6 +60,7 @@ type ReportVoiceRow = {
   scanLabel: string;
   audioDataUri: string;
   createdAt: string;
+  listened: boolean;
 };
 
 type HistoryPayload = {
@@ -66,6 +75,7 @@ type HistoryPayload = {
   scans: ScanRow[];
   visitNotes: VisitRow[];
   reportVoiceNotes?: ReportVoiceRow[];
+  reportVoiceNotesArchived?: ReportVoiceRow[];
 };
 
 const CARD = {
@@ -88,6 +98,8 @@ export default function HistoryListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pdfScanId, setPdfScanId] = useState<number | null>(null);
+  const [voiceBusyId, setVoiceBusyId] = useState<string | null>(null);
+  const [showArchivedReportAudio, setShowArchivedReportAudio] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -97,6 +109,25 @@ export default function HistoryListScreen() {
     });
     setData(json);
   }, [token]);
+
+  const patchReportVoice = useCallback(
+    async (id: string, body: { listened?: boolean; archived?: boolean }) => {
+      if (!token) return;
+      setVoiceBusyId(id);
+      try {
+        await apiJson(`/api/patient/voice-notes/${id}`, token, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        await load();
+      } catch {
+        /* ignore */
+      } finally {
+        setVoiceBusyId(null);
+      }
+    },
+    [token, load]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -158,6 +189,7 @@ export default function HistoryListScreen() {
   const scans = data?.scans ?? [];
   const visits = data?.visitNotes ?? [];
   const reportVoices = data?.reportVoiceNotes ?? [];
+  const reportVoicesArchived = data?.reportVoiceNotesArchived ?? [];
 
   return (
     <ScrollView
@@ -298,12 +330,62 @@ export default function HistoryListScreen() {
                 </Text>
               </View>
               <HistoryAudioPlayButton uri={vn.audioDataUri} />
+              <Pressable
+                style={styles.voiceListenRow}
+                disabled={voiceBusyId === vn.id}
+                onPress={() =>
+                  void patchReportVoice(vn.id, { listened: !vn.listened })
+                }
+              >
+                <View
+                  style={[
+                    styles.voiceCheck,
+                    vn.listened ? { backgroundColor: "#0d9488", borderColor: "#0d9488" } : null,
+                  ]}
+                />
+                <Text style={styles.voiceListenLabel}>I listened</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.voiceArchiveBtn,
+                  { opacity: vn.listened && voiceBusyId !== vn.id ? 1 : 0.45 },
+                ]}
+                disabled={!vn.listened || voiceBusyId === vn.id}
+                onPress={() => void patchReportVoice(vn.id, { archived: true })}
+              >
+                <Text style={styles.voiceArchiveBtnText}>Archive</Text>
+              </Pressable>
               <Pressable onPress={() => router.push(`/(drawer)/history/${vn.scanId}`)}>
                 <Text style={[styles.editLink, { marginTop: 8 }]}>Open report</Text>
               </Pressable>
             </View>
           ))
         )}
+        {reportVoicesArchived.length > 0 ? (
+          <View style={{ marginTop: 16 }}>
+            <Pressable onPress={() => setShowArchivedReportAudio((v) => !v)}>
+              <Text style={styles.editLink}>
+                {showArchivedReportAudio ? "Hide" : "Show"} archived report audio (
+                {reportVoicesArchived.length})
+              </Text>
+            </Pressable>
+            {showArchivedReportAudio
+              ? reportVoicesArchived.map((vn) => (
+                  <View key={vn.id} style={[styles.visitCard, { marginTop: 10 }]}>
+                    <View style={styles.visitHeader}>
+                      <Text style={styles.visitDate} numberOfLines={2}>
+                        {vn.scanLabel}
+                      </Text>
+                      <Text style={styles.visitDoc}>
+                        {format(new Date(vn.createdAt), "MMM d, yyyy")}
+                      </Text>
+                    </View>
+                    <HistoryAudioPlayButton uri={vn.audioDataUri} />
+                  </View>
+                ))
+              : null}
+          </View>
+        ) : null}
 
         <Text style={[styles.subsectionTitle, { marginTop: 24 }]}>Clinic notes</Text>
         {visits.length === 0 ? (
@@ -320,6 +402,28 @@ export default function HistoryListScreen() {
               <View style={styles.visitNotesBox}>
                 <Text style={styles.visitNotesLabel}>Notes</Text>
                 <Text style={styles.visitNotesBody}>{visit.notes}</Text>
+                {visit.attachments && visit.attachments.length > 0 ? (
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.visitNotesLabel}>Documents</Text>
+                    {visit.attachments.map((att, i) => (
+                      <Pressable
+                        key={`${visit.id}-att-${i}`}
+                        onPress={() => {
+                          void Linking.openURL(att.dataUri).catch(() => {
+                            Alert.alert(
+                              "Could not open file",
+                              "Try opening Treatment history on the web app to download this file."
+                            );
+                          });
+                        }}
+                        style={{ marginTop: 6 }}
+                      >
+                        <Text style={styles.attachLink}>{att.fileName}</Text>
+                        <Text style={styles.attachMeta}>{att.mimeType}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             </View>
           ))
@@ -447,6 +551,31 @@ const styles = StyleSheet.create({
     borderColor: "#7dd3fc",
   },
   voiceBtnText: { fontSize: 14, fontWeight: "700", color: "#0369a1" },
+  voiceListenRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 10,
+  },
+  voiceCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#0d9488",
+  },
+  voiceListenLabel: { fontSize: 14, color: "#27272a", flex: 1 },
+  voiceArchiveBtn: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#d4d4d8",
+    backgroundColor: "#fff",
+  },
+  voiceArchiveBtnText: { fontSize: 13, fontWeight: "700", color: "#3f3f46" },
   visitSection: { padding: 16 },
   visitCard: {
     marginBottom: 16,
@@ -481,4 +610,11 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   visitNotesBody: { fontSize: 14, lineHeight: 22, color: "#3f3f46" },
+  attachLink: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f766e",
+    textDecorationLine: "underline",
+  },
+  attachMeta: { fontSize: 12, color: "#71717a", marginTop: 2 },
 });

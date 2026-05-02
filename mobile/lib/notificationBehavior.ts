@@ -23,9 +23,18 @@ export function configureNotificationBehavior() {
     });
 
     Notifications.addNotificationResponseReceivedListener((response) => {
-      const t = response.notification.request.content.data?.type;
+      const data = response.notification.request.content.data as Record<
+        string,
+        unknown
+      > | null;
+      const t = data?.type;
       if (t === "clinic_chat") {
         router.push("/(drawer)/chat");
+        return;
+      }
+      if (t === "doctor_voice_note") {
+        const onReport = data?.attachedToReport === true;
+        router.push(onReport ? "/(drawer)/history" : "/(drawer)/");
       }
     });
   })();

@@ -3,7 +3,6 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/src/db";
 import {
   appointments,
-  dailyFocus,
   dailyLogs,
   doctorFeedbackVoiceNotes,
   monthlyReports,
@@ -70,6 +69,9 @@ export async function GET(
       cycleTrackingEnabled: true,
       appointmentReminderHoursBefore: true,
       createdAt: true,
+      routinePlanAmItems: true,
+      routinePlanPmItems: true,
+      routinePlanClinicianLocked: true,
     },
   });
 
@@ -81,7 +83,6 @@ export async function GET(
     scanRowsRaw,
     visitRows,
     voiceRows,
-    focusRows,
     logRows,
     qaRows,
     dnaRow,
@@ -101,6 +102,7 @@ export async function GET(
         visitDate: visitNotes.visitDate,
         doctorName: visitNotes.doctorName,
         notes: visitNotes.notes,
+        attachments: visitNotes.attachments,
         createdAt: visitNotes.createdAt,
       })
       .from(visitNotes)
@@ -117,11 +119,6 @@ export async function GET(
       .where(eq(doctorFeedbackVoiceNotes.userId, patientId))
       .orderBy(desc(doctorFeedbackVoiceNotes.createdAt))
       .limit(30),
-    db.query.dailyFocus.findMany({
-      where: eq(dailyFocus.userId, patientId),
-      orderBy: [desc(dailyFocus.focusDate)],
-      limit: 45,
-    }),
     db.query.dailyLogs.findMany({
       where: eq(dailyLogs.userId, patientId),
       orderBy: [desc(dailyLogs.date)],
@@ -244,7 +241,7 @@ export async function GET(
       annotations: s.annotations,
       createdAt: s.createdAt.toISOString(),
       faceCaptureCount: s.faceCaptureImages?.length ? s.faceCaptureImages.length : 1,
-      imageDoctorUrl: `/api/doctor/patients/${pidEnc}/scans/${s.id}/image`,
+      imageDoctorUrl: `/api/doctor/patients/${pidEnc}/scans/${s.id}/image?preview=1`,
     };
   });
 
@@ -271,19 +268,13 @@ export async function GET(
           : String(v.visitDate),
       doctorName: v.doctorName,
       notes: v.notes,
+      attachments: v.attachments ?? null,
       createdAt: v.createdAt.toISOString(),
     })),
     recentVoiceNotes: voiceRows.map((v) => ({
       id: v.id,
       scanId: v.scanId,
       createdAt: v.createdAt.toISOString(),
-    })),
-    dailyFocus: focusRows.map((f) => ({
-      id: f.id,
-      focusDateYmd: ymdFromDateOnly(f.focusDate),
-      message: f.message,
-      sourceParam: f.sourceParam,
-      createdAt: f.createdAt.toISOString(),
     })),
     dailyLogs: logRows.map((l) => ({
       id: l.id,

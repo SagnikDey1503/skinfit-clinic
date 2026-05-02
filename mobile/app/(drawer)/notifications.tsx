@@ -24,9 +24,10 @@ import { registerForPushAndSyncToken, unregisterPushToken } from "@/lib/pushNoti
 export default function NotificationsScreen() {
   const { token } = useAuth();
   const router = useRouter();
-  const [unreadTotal, setUnreadTotal] = useState(0);
   const [supportCount, setSupportCount] = useState(0);
   const [doctorCount, setDoctorCount] = useState(0);
+  const [voiceNoteGeneralCount, setVoiceNoteGeneralCount] = useState(0);
+  const [voiceNoteReportCount, setVoiceNoteReportCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pushBusy, setPushBusy] = useState(false);
 
@@ -43,10 +44,18 @@ export default function NotificationsScreen() {
         total?: number;
         supportCount?: number;
         doctorCount?: number;
+        voiceNoteCount?: number;
+        voiceNoteGeneralCount?: number;
+        voiceNoteReportCount?: number;
       }>(`/api/chat/inbox/unread?${inboxQ.toString()}`, token, { method: "GET" });
-      setUnreadTotal(typeof inbox.total === "number" ? inbox.total : 0);
       setSupportCount(typeof inbox.supportCount === "number" ? inbox.supportCount : 0);
       setDoctorCount(typeof inbox.doctorCount === "number" ? inbox.doctorCount : 0);
+      setVoiceNoteGeneralCount(
+        typeof inbox.voiceNoteGeneralCount === "number" ? inbox.voiceNoteGeneralCount : 0
+      );
+      setVoiceNoteReportCount(
+        typeof inbox.voiceNoteReportCount === "number" ? inbox.voiceNoteReportCount : 0
+      );
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         /* signed out */
@@ -68,10 +77,25 @@ export default function NotificationsScreen() {
     try {
       const t = await registerForPushAndSyncToken(token);
       if (t) {
-        Alert.alert("Notifications on", "You’ll get alerts when the clinic sends you a chat message.");
+        Alert.alert(
+          "Notifications on",
+          "You’ll get alerts for clinic chat and new doctor voice notes (including audio on your scan reports)."
+        );
       }
     } finally {
       setPushBusy(false);
+    }
+  }
+
+  async function markVoiceViewed(scope: "dashboard" | "report") {
+    if (!token) return;
+    try {
+      await apiJson(`/api/patient/doctor-feedback/viewed`, token, {
+        method: "POST",
+        body: JSON.stringify({ scope }),
+      });
+    } catch {
+      /* ignore */
     }
   }
 
@@ -107,20 +131,68 @@ export default function NotificationsScreen() {
             <View style={styles.cardBody}>
               <Text style={styles.cardTitle}>Chat with clinic</Text>
               <Text style={styles.cardSub}>
-                {unreadTotal === 0
+                {supportCount + doctorCount === 0
                   ? "No unread messages from Support or your doctor."
-                  : `${unreadTotal} unread from the care team.`}
+                  : `${supportCount + doctorCount} unread from the care team.`}
               </Text>
               {(supportCount > 0 || doctorCount > 0) && (
                 <Text style={styles.cardMeta}>
                   {supportCount > 0 ? `Support: ${supportCount}` : ""}
                   {supportCount > 0 && doctorCount > 0 ? " · " : ""}
-                  {doctorCount > 0 ? `Doctor: ${doctorCount}` : ""}
+                  {doctorCount > 0 ? `Doctor chat: ${doctorCount}` : ""}
                 </Text>
               )}
             </View>
             <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
           </Pressable>
+
+          {voiceNoteGeneralCount > 0 ? (
+            <Pressable
+              style={styles.card}
+              onPress={() => {
+                void (async () => {
+                  await markVoiceViewed("dashboard");
+                  void load();
+                  router.push("/(drawer)/");
+                })();
+              }}
+            >
+              <View style={[styles.iconCircle, { backgroundColor: "rgba(14, 165, 233, 0.15)" }]}>
+                <Ionicons name="mic-outline" size={22} color="#0369a1" />
+              </View>
+              <View style={styles.cardBody}>
+                <Text style={styles.cardTitle}>Doctor voice (home)</Text>
+                <Text style={styles.cardSub}>
+                  New audio under Doctor&apos;s feedback on your dashboard.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+            </Pressable>
+          ) : null}
+
+          {voiceNoteReportCount > 0 ? (
+            <Pressable
+              style={styles.card}
+              onPress={() => {
+                void (async () => {
+                  await markVoiceViewed("report");
+                  void load();
+                  router.push("/(drawer)/history");
+                })();
+              }}
+            >
+              <View style={[styles.iconCircle, { backgroundColor: "rgba(139, 92, 246, 0.15)" }]}>
+                <Ionicons name="document-text-outline" size={22} color="#6d28d9" />
+              </View>
+              <View style={styles.cardBody}>
+                <Text style={styles.cardTitle}>Audio on scan report</Text>
+                <Text style={styles.cardSub}>
+                  Open Treatment history → Audio notes to listen.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+            </Pressable>
+          ) : null}
 
           <Pressable
             style={styles.card}
@@ -142,8 +214,8 @@ export default function NotificationsScreen() {
             <View style={styles.pushSection}>
               <Text style={styles.pushTitle}>Outside the app</Text>
               <Text style={styles.pushSub}>
-                Allow push notifications to get an alert when the clinic sends a chat message, even if
-                SkinnFit isn’t open.
+                Allow push notifications for chat messages and doctor voice notes (including report
+                audio), even if SkinnFit isn’t open.
               </Text>
               <View style={styles.pushRow}>
                 <Pressable

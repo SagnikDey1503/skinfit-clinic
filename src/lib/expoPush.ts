@@ -64,9 +64,10 @@ export async function notifyPatientNewClinicChat(
   });
 }
 
-/** Patient push when a doctor posts a voice note (onboarding feedback). */
+/** Patient push when a doctor posts a voice note (general or scan/report). */
 export async function notifyPatientDoctorVoiceNote(
-  patientUserId: string
+  patientUserId: string,
+  opts?: { attachedToReport: boolean; scanId?: number | null }
 ): Promise<void> {
   const [row] = await db
     .select({ token: users.expoPushToken })
@@ -76,11 +77,20 @@ export async function notifyPatientDoctorVoiceNote(
   const token = row?.token?.trim();
   if (!token) return;
 
+  const onReport = Boolean(opts?.attachedToReport);
+  const body = onReport
+    ? "New voice note on your scan report — open Treatment history to listen."
+    : "New voice note from your care team. Open the app to listen.";
+
   await sendExpoPushNotification({
     expoPushToken: token,
     title: "SkinnFit — your doctor",
-    body: "New voice note from your care team. Open the app to listen.",
-    data: { type: "doctor_voice_note" },
+    body,
+    data: {
+      type: "doctor_voice_note",
+      attachedToReport: onReport,
+      ...(opts?.scanId != null ? { scanId: opts.scanId } : {}),
+    },
   });
 }
 

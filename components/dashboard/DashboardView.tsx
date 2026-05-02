@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
-import { Sun, Moon, SunMoon, ChevronsUp } from "lucide-react";
+import {
+  Archive,
+  Check,
+  ChevronRight,
+  Mic,
+  Moon,
+  Sun,
+  SunMoon,
+  ChevronsUp,
+} from "lucide-react";
 import { normalizeRoutineSteps, routineStepsProgress } from "@/src/lib/routine";
 import { analysisResultsToParams } from "@/src/lib/skinScanAnalysis";
 import {
@@ -44,11 +53,12 @@ export type SkinScanHistoryItem = {
   analysisResults: unknown;
 };
 
-type DoctorVoiceNote = {
+export type DoctorVoiceNoteItem = {
   id: string;
   audioDataUri: string;
   createdAt: string;
-} | null;
+  listened: boolean;
+};
 
 interface DashboardViewProps {
   skinScanHistory: SkinScanHistoryItem[];
@@ -58,15 +68,149 @@ interface DashboardViewProps {
   routineScore?: number;
   weeklyChangePercent?: number;
   doctorFeedback?: string | null;
-  doctorVoiceNote?: DoctorVoiceNote;
+  doctorVoiceNotes?: DoctorVoiceNoteItem[];
+  doctorArchivedVoiceNotes?: DoctorVoiceNoteItem[];
   doctorVoiceNoteIsNew?: boolean;
   onboardingComplete?: boolean;
+  /** False after onboarding until the clinician saves AM/PM step labels. */
+  routinePlanReady?: boolean;
 }
 
 const DONUT = 104;
 const STROKE = 9;
 const R = (DONUT - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
+
+function DashboardHomeVoiceBlock({
+  note,
+  onChanged,
+}: {
+  note: DoctorVoiceNoteItem;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const patch = useCallback(
+    async (body: { listened?: boolean; archived?: boolean }) => {
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/patient/voice-notes/${note.id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          window.dispatchEvent(
+            new Event(CLINIC_SUPPORT_INBOX_REFRESH_EVENT)
+          );
+          onChanged();
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [note.id, onChanged]
+  );
+
+  const created = new Date(note.createdAt);
+
+  return (
+    <div
+      className="overflow-hidden rounded-2xl bg-white shadow-[0_8px_22px_-14px_rgba(15,23,42,0.22)]"
+      style={{ border: "1px solid #e8e2d8" }}
+    >
+      <div className="flex items-start justify-between gap-3 px-4 pb-1 pt-4 sm:px-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-100/90 text-teal-800 shadow-sm">
+            <Mic className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 pt-0.5">
+            <p className="text-[15px] font-semibold leading-snug text-zinc-900">
+              Voice note from your doctor
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Your clinician recorded this for you
+            </p>
+          </div>
+        </div>
+        <time
+          dateTime={created.toISOString()}
+          className="shrink-0 rounded-full bg-[#f8f7f4] px-2.5 py-1 text-center text-[11px] font-medium leading-tight text-zinc-600 sm:text-xs"
+          style={{ border: "1px solid #dcd5ca" }}
+        >
+          <span className="block tabular-nums">
+            {format(created, "dd/MM/yy")}
+          </span>
+          <span className="block text-[10px] font-normal text-zinc-500 sm:text-[11px]">
+            {format(created, "h:mm a")}
+          </span>
+        </time>
+      </div>
+
+      <div className="px-4 py-4 sm:px-5">
+        <div className="rounded-xl bg-[#f5f2ed] px-3 py-2.5">
+          <audio
+            controls
+            preload="metadata"
+            className="h-9 w-full max-h-9 min-h-[2.25rem] [&::-webkit-media-controls-panel]:rounded-lg"
+            style={{ accentColor: "#0f766e" }}
+            src={note.audioDataUri}
+          >
+            Your browser does not support audio.
+          </audio>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 px-4 pb-4 pt-1 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <label
+          className={`inline-flex max-w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors ${
+            note.listened
+              ? "bg-teal-50/80"
+              : "bg-[#fcfcfb] hover:bg-white"
+          } ${busy ? "pointer-events-none opacity-60" : ""}`}
+          style={{ border: `1px solid ${note.listened ? "#b7e4dd" : "#ddd6cc"}` }}
+        >
+          <input
+            type="checkbox"
+            className="peer sr-only"
+            checked={note.listened}
+            disabled={busy}
+            onChange={(e) => void patch({ listened: e.target.checked })}
+          />
+          <span
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 border-solid transition-colors ${
+              note.listened
+                ? "border-teal-600 bg-teal-600"
+                : "border-stone-300 bg-white peer-focus-visible:ring-2 peer-focus-visible:ring-teal-500/30"
+            }`}
+          >
+            <Check
+              className={`h-3.5 w-3.5 stroke-[2.5] text-white ${note.listened ? "opacity-100" : "opacity-0"}`}
+              aria-hidden
+            />
+          </span>
+          <span className="text-sm font-medium text-zinc-800">I listened</span>
+        </label>
+
+        <button
+          type="button"
+          disabled={busy || !note.listened}
+          onClick={() => void patch({ archived: true })}
+          title={
+            note.listened
+              ? "Move to archived (still playable)"
+              : "Mark as listened first"
+          }
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#fcfcfb] px-4 py-2.5 text-sm font-semibold text-zinc-600 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:bg-white hover:text-zinc-900 disabled:cursor-not-allowed disabled:bg-stone-100/40 disabled:text-zinc-400 disabled:shadow-none"
+          style={{ border: "1px solid #ddd6cc" }}
+        >
+          <Archive className="h-4 w-4 opacity-70" aria-hidden />
+          Archive
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function DonutGauge({
   percent,
@@ -162,12 +306,29 @@ export function DashboardView({
   routineScore = 80,
   weeklyChangePercent = 5,
   doctorFeedback = "",
-  doctorVoiceNote = null,
+  doctorVoiceNotes = [],
+  doctorArchivedVoiceNotes = [],
   doctorVoiceNoteIsNew = false,
   onboardingComplete = true,
+  routinePlanReady = false,
 }: DashboardViewProps) {
   const router = useRouter();
-  const displayDate = format(new Date(), "dd/MM/yy");
+  const displayDate = format(
+    new Date(doctorVoiceNotes[0]?.createdAt ?? Date.now()),
+    "dd/MM/yy"
+  );
+  const refreshDoctor = useCallback(() => router.refresh(), [router]);
+  const routineHasSteps =
+    onboardingComplete &&
+    routinePlanReady &&
+    amItems.length > 0 &&
+    pmItems.length > 0;
+
+  /** When the clinician updates the plan, refetch today’s log so step arrays stay aligned (router.refresh updates props without remounting). */
+  const routinePlanKey = useMemo(
+    () => `${JSON.stringify(amItems)}|${JSON.stringify(pmItems)}`,
+    [amItems, pmItems]
+  );
 
   /** Align today's log with the browser calendar (PATCH already uses this). Server SSR uses UTC on Vercel — sync fixes wrong row. */
   type TodaySync = TodayJournalLog | "pending" | "error";
@@ -180,7 +341,7 @@ export function DashboardView({
       try {
         const res = await fetch(
           `/api/journal?date=${encodeURIComponent(ymd)}`,
-          { credentials: "include" }
+          { credentials: "include", cache: "no-store" }
         );
         if (!res.ok) {
           if (!cancelled) setSyncedTodayLog("error");
@@ -219,7 +380,7 @@ export function DashboardView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [routinePlanKey]);
 
   const effectiveTodayLog: TodayJournalLog =
     syncedTodayLog === "pending" || syncedTodayLog === "error"
@@ -262,12 +423,11 @@ export function DashboardView({
 
   const routineSourceKey = useMemo(
     () =>
-      `${JSON.stringify(effectiveTodayLog?.routineAmSteps ?? null)}|${JSON.stringify(effectiveTodayLog?.routinePmSteps ?? null)}|${amItems.length}|${pmItems.length}`,
+      `${routinePlanKey}|${JSON.stringify(effectiveTodayLog?.routineAmSteps ?? null)}|${JSON.stringify(effectiveTodayLog?.routinePmSteps ?? null)}`,
     [
+      routinePlanKey,
       effectiveTodayLog?.routineAmSteps,
       effectiveTodayLog?.routinePmSteps,
-      amItems.length,
-      pmItems.length,
     ]
   );
 
@@ -411,7 +571,14 @@ export function DashboardView({
         </div>
       </section>
 
-      <DashboardDayQuestBanner routineProgress={routineProgress} />
+      <DashboardDayQuestBanner
+        routineProgress={routineProgress}
+        questSubtext={
+          onboardingComplete && !routineHasSteps
+            ? "Your customised daily plan will be given by the clinic soon."
+            : null
+        }
+      />
 
       {/* AM/PM Schedule */}
       <section
@@ -430,7 +597,17 @@ export function DashboardView({
             Loading today&apos;s routine for your time zone…
           </p>
         ) : null}
-
+        {!onboardingComplete ? (
+          <p className="rounded-xl border border-dashed border-amber-200 bg-amber-50/70 px-4 py-3 text-sm font-medium text-amber-950">
+            Finish onboarding first. After that, your clinician will set the AM/PM steps you
+            follow each day.
+          </p>
+        ) : !routineHasSteps ? (
+          <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm font-medium text-zinc-800">
+            Your customised daily plan will be given by the clinic soon.
+          </p>
+        ) : null}
+        {!routineHasSteps ? null : (
         <div className="relative grid min-h-[220px] grid-cols-2 gap-0">
           <div className="relative border-r border-zinc-200/90 pr-4 md:pr-8">
             <Sun
@@ -528,6 +705,7 @@ export function DashboardView({
             </div>
           </div>
         </div>
+        )}
       </section>
 
       {/* Daily Journal — title outside card */}
@@ -585,63 +763,135 @@ export function DashboardView({
         </div>
       </section>
 
-      {/* Doctor's Feedback + voice note */}
+      {/* Written notes from clinic (separate from home voice inbox) */}
       <section
-        id="doctor-feedback"
-        className="scroll-mt-24 rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
+        id="doctor-written-feedback"
+        className="scroll-mt-24 rounded-[22px] bg-gradient-to-b from-white to-[#FAF8F4]/90 p-5 shadow-[0_8px_28px_-4px_rgba(15,23,42,0.07)] md:p-6"
+        style={{ border: "1px solid #eee7dc" }}
+        aria-labelledby="doctor-written-feedback-heading"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-zinc-900">Doctor&apos;s Feedback</h2>
-          <div className="flex items-center gap-2">
-            {doctorVoiceNoteIsNew ? (
-              <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-800">
-                New
-              </span>
-            ) : null}
-            <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2
+              id="doctor-written-feedback-heading"
+              className="text-lg font-bold tracking-tight text-zinc-900"
+            >
+              Doctor&apos;s feedback
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Written notes from your care team (not voice messages).
+            </p>
           </div>
         </div>
 
-        {doctorVoiceNote ? (
-          <div className="mb-4 rounded-[18px] border border-sky-100 bg-sky-50/80 px-4 py-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-800">
-              Voice note from your doctor
+        {doctorFeedback?.trim() ? (
+          <div className="min-h-[100px] rounded-2xl bg-white/92 px-4 py-3.5 text-sm leading-relaxed text-zinc-700 shadow-[0_1px_4px_rgba(15,23,42,0.05),inset_0_0_0_1px_rgba(120,113,108,0.08)]">
+            {doctorFeedback}
+          </div>
+        ) : onboardingComplete ? (
+          <p className="text-sm text-zinc-500">No written visit notes yet.</p>
+        ) : (
+          <p className="text-sm text-zinc-500">
+            Written feedback will appear here after your doctor adds clinic notes.
+          </p>
+        )}
+      </section>
+
+      {/* Home dashboard voice notes (`#doctor-feedback` — notification deep link) */}
+      <section
+        id="doctor-feedback"
+        className="scroll-mt-24 rounded-[22px] bg-gradient-to-b from-white to-[#FAF8F4]/90 p-5 shadow-[0_8px_28px_-4px_rgba(15,23,42,0.07)] md:p-6"
+        style={{ border: "1px solid #eee7dc" }}
+        aria-labelledby="dashboard-voice-heading"
+      >
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 pb-1">
+          <div>
+            <h2
+              id="dashboard-voice-heading"
+              className="text-lg font-bold tracking-tight text-zinc-900"
+            >
+              Voice notes on your dashboard
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Audio from your doctor for your home inbox — separate from written notes
+              above.
             </p>
-            <audio
-              controls
-              src={doctorVoiceNote.audioDataUri}
-              className="h-10 w-full max-w-md"
-              onPlay={() => {
-                void (async () => {
-                  try {
-                    await fetch("/api/patient/doctor-feedback/viewed", {
-                      method: "POST",
-                      credentials: "include",
-                    });
-                    window.dispatchEvent(
-                      new Event(CLINIC_SUPPORT_INBOX_REFRESH_EVENT)
-                    );
-                    router.refresh();
-                  } catch {
-                    /* ignore */
-                  }
-                })();
-              }}
-            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {doctorVoiceNoteIsNew ? (
+              <span className="rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-bold text-teal-900 shadow-[inset_0_0_0_1px_rgba(13,148,136,0.2)]">
+                New
+              </span>
+            ) : null}
+            <span
+              className="rounded-full bg-stone-100/95 px-2.5 py-1 text-xs font-medium tabular-nums text-zinc-600"
+              style={{ border: "1px solid #ddd6cc" }}
+            >
+              {displayDate}
+            </span>
+          </div>
+        </div>
+
+        {doctorVoiceNotes.length > 0 ? (
+          <div className="mb-4 space-y-5">
+            {doctorVoiceNotes.map((vn) => (
+              <DashboardHomeVoiceBlock
+                key={vn.id}
+                note={vn}
+                onChanged={refreshDoctor}
+              />
+            ))}
           </div>
         ) : !onboardingComplete ? (
           <div className="mb-4 rounded-[18px] border border-dashed border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-950">
             Your doctor will send a voice note after reviewing your baseline. We&apos;ll
             notify you with the bell when it arrives.
           </div>
-        ) : null}
+        ) : (
+          <p className="mb-4 text-sm text-zinc-500">
+            No voice notes in your dashboard inbox yet.
+          </p>
+        )}
 
-        {doctorFeedback?.trim() ? (
-          <div className="min-h-[100px] rounded-[18px] border border-zinc-100 bg-zinc-50/80 px-4 py-3 text-sm leading-relaxed text-zinc-700">
-            {doctorFeedback}
-          </div>
-        ) : onboardingComplete ? (
-          <p className="text-sm text-zinc-500">No written visit notes yet.</p>
+        {doctorArchivedVoiceNotes.length > 0 ? (
+          <details className="group mt-5 overflow-hidden rounded-2xl bg-stone-100/50 shadow-[0_1px_3px_rgba(15,23,42,0.05),inset_0_0_0_1px_rgba(120,113,108,0.1)]">
+            <summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-semibold text-zinc-800 transition hover:bg-stone-200/30 [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <Archive className="h-4 w-4 text-zinc-500" aria-hidden />
+                  Archived voice notes
+                  <span className="rounded-full bg-zinc-200/80 px-2 py-0.5 text-xs font-bold tabular-nums text-zinc-700">
+                    {doctorArchivedVoiceNotes.length}
+                  </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-400 transition group-open:rotate-90" />
+              </span>
+            </summary>
+            <p className="border-t border-stone-200/35 px-4 pb-3 pt-2 text-xs leading-relaxed text-zinc-600">
+              Still here if you need them — nothing is deleted.
+            </p>
+            <div className="space-y-3 border-t border-stone-200/35 bg-white/40 px-4 py-4">
+              {doctorArchivedVoiceNotes.map((vn) => (
+                <div
+                  key={vn.id}
+                  className="rounded-xl bg-white/90 p-3 shadow-[0_1px_3px_rgba(15,23,42,0.04)]"
+                >
+                  <p className="text-xs font-medium text-zinc-600">
+                    {format(new Date(vn.createdAt), "dd/MM/yy · h:mm a")}
+                  </p>
+                  <div className="mt-2 rounded-lg bg-stone-200/35 px-2.5 py-2">
+                    <audio
+                      controls
+                      preload="metadata"
+                      className="h-8 w-full"
+                      style={{ accentColor: "#0f766e" }}
+                      src={vn.audioDataUri}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
         ) : null}
       </section>
     </div>

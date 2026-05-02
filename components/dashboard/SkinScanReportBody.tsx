@@ -15,6 +15,7 @@ import {
   downloadScanReportPdf,
   renderScanReportPdfBlob,
 } from "@/src/lib/downloadScanReportPdf";
+import { patientScanImageDisplayUrl } from "@/src/lib/patientScanImagePath";
 import type { PatientTrackerReport } from "@/src/lib/patientTrackerReport.types";
 import { TrackerReportSections } from "./TrackerReportSections";
 
@@ -79,6 +80,42 @@ const OVERVIEW_P2 =
   "Maintaining gentle cleansing, daily photoprotection, and targeted hydration supports long-term barrier health and helps preserve the improvements shown in your latest scan.";
 
 const easeOut = [0.22, 1, 0.36, 1] as const;
+
+function ReportFaceImage({
+  src,
+  alt,
+  className,
+  crossOrigin,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+  crossOrigin?: "anonymous" | "use-credentials";
+}) {
+  const displaySrc = patientScanImageDisplayUrl(src);
+  const isInline =
+    src.trim().startsWith("data:") || src.trim().startsWith("blob:");
+  const [loaded, setLoaded] = useState(isInline);
+  const remote = !isInline;
+  return (
+    <div className="relative h-full w-full">
+      {remote && !loaded ? (
+        <div
+          className="absolute inset-0 animate-pulse bg-zinc-200/90"
+          aria-hidden
+        />
+      ) : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={displaySrc}
+        alt={alt}
+        className={`${className}${remote ? (loaded ? " opacity-100" : " opacity-0") : ""} transition-opacity duration-200`}
+        crossOrigin={crossOrigin}
+        onLoad={() => setLoaded(true)}
+      />
+    </div>
+  );
+}
 
 function clamp(n: number) {
   return Math.min(100, Math.max(0, Math.round(n)));
@@ -540,8 +577,8 @@ export function SkinScanReportBody({
           <div className="mx-auto mt-6 flex justify-center">
             <figure className="flex flex-col items-center gap-2">
               <div className={FACE_CAPTURE_FRAME_SINGLE}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <ReportFaceImage
+                  key={resolvedPhotos[0].imageUrl}
                   src={resolvedPhotos[0].imageUrl}
                   alt={resolvedPhotos[0].label}
                   className="h-full w-full object-cover object-center"
@@ -562,8 +599,8 @@ export function SkinScanReportBody({
                 className="flex w-full max-w-[120px] flex-col items-center gap-1.5 sm:max-w-[130px]"
               >
                 <div className={FACE_CAPTURE_FRAME}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <ReportFaceImage
+                    key={item.imageUrl}
                     src={item.imageUrl}
                     alt={item.label}
                     className="h-full w-full object-cover object-center"
@@ -585,8 +622,8 @@ export function SkinScanReportBody({
                 className="flex w-full max-w-[120px] flex-col items-center gap-1.5 sm:max-w-[130px]"
               >
                 <div className={FACE_CAPTURE_FRAME}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <ReportFaceImage
+                    key={item.imageUrl}
                     src={item.imageUrl}
                     alt={item.label}
                     className="h-full w-full object-cover object-center"
@@ -617,17 +654,23 @@ export function SkinScanReportBody({
                 : "Markers show where the model flagged concerns (acne, wrinkles, etc.)."}
             </p>
             <div className="relative mx-auto mt-4 aspect-[3/4] w-full max-w-[280px] overflow-hidden rounded-2xl bg-zinc-200 ring-1 ring-zinc-300/80">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={overlayUrl || imageUrl}
-                alt={
-                  overlayUrl
-                    ? "Scan with wrinkle and acne overlay"
-                    : "Scan with detection markers"
-                }
-                className="h-full w-full object-cover object-center"
-                crossOrigin={galleryImgCrossOrigin(overlayUrl || imageUrl)}
-              />
+              {overlayUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={overlayUrl}
+                  alt="Scan with wrinkle and acne overlay"
+                  className="h-full w-full object-cover object-center"
+                  crossOrigin={galleryImgCrossOrigin(overlayUrl)}
+                />
+              ) : (
+                <ReportFaceImage
+                  key={imageUrl}
+                  src={imageUrl}
+                  alt="Scan with detection markers"
+                  className="h-full w-full object-cover object-center"
+                  crossOrigin={galleryImgCrossOrigin(imageUrl)}
+                />
+              )}
               {showDotMarkers
                 ? regions.map((r, i) => (
                     <div
@@ -696,8 +739,8 @@ export function SkinScanReportBody({
         serverTracker === undefined &&
         typeof scanId === "number" &&
         scanId > 0 ? (
-          <p className="mt-6 text-center text-sm text-zinc-500">
-            Loading personalised tracker…
+          <p className="mt-6 text-center text-sm font-medium text-zinc-500">
+            Loading personalized sections…
           </p>
         ) : null}
 

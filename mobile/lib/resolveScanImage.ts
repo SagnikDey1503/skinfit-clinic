@@ -18,8 +18,17 @@ export function resolveAuthenticatedScanImageSource(
       ? imageUrl
       : apiUrl(imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`);
 
-  const isPatientScanImage =
-    absolute.includes("/api/patient/scans/") && absolute.endsWith("/image");
+  const isPatientScanImage = (() => {
+    try {
+      const u = new URL(absolute);
+      return /\/api\/patient\/scans\/\d+\/image$/.test(u.pathname);
+    } catch {
+      return (
+        absolute.includes("/api/patient/scans/") &&
+        /\/image(\?|$)/.test(absolute)
+      );
+    }
+  })();
   if (token && isPatientScanImage) {
     return {
       uri: absolute,
@@ -29,6 +38,22 @@ export function resolveAuthenticatedScanImageSource(
   return { uri: absolute };
 }
 
+function stripPreviewFromPatientScanImageUrl(url: string): string {
+  const t = url.trim();
+  if (!t.includes("/api/patient/scans/") || !/\/image(\?|$)/.test(t)) {
+    return t;
+  }
+  try {
+    const u = new URL(t, "http://local.invalid");
+    if (!/\/api\/patient\/scans\/\d+\/image$/.test(u.pathname)) return t;
+    u.searchParams.delete("preview");
+    const q = u.searchParams.toString();
+    return q ? `${u.pathname}?${q}` : u.pathname;
+  } catch {
+    return t;
+  }
+}
+
 /** Load bytes for HTML PDF (Expo Print cannot send auth headers on &lt;img&gt;). */
 export async function embedScanImageForPdf(
   imageUrl: string,
@@ -36,7 +61,8 @@ export async function embedScanImageForPdf(
 ): Promise<string> {
   if (imageUrl.startsWith("data:")) return imageUrl;
 
-  const { uri, headers } = resolveAuthenticatedScanImageSource(imageUrl, token);
+  const fullUrl = stripPreviewFromPatientScanImageUrl(imageUrl);
+  const { uri, headers } = resolveAuthenticatedScanImageSource(fullUrl, token);
   const res = await fetch(uri, { headers: headers ?? {} });
   if (!res.ok) {
     throw new Error("Could not load scan image for PDF.");

@@ -63,7 +63,7 @@ export async function GET(
     row.faceCaptureImages && row.faceCaptureImages.length >= 1
       ? row.faceCaptureImages.map((entry, i) => ({
           label: FACE_SCAN_CAPTURE_STEPS[i]?.title ?? entry.label,
-          imageUrl: `${patientScanImagePath(row.id)}?i=${i}`,
+          imageUrl: patientScanImagePath(row.id, { index: i }),
         }))
       : undefined;
 

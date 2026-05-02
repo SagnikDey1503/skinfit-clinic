@@ -5,6 +5,7 @@ import { Sparkles, User } from "lucide-react";
 import { DashboardNav } from "./dashboard-nav";
 import { LogoutButton } from "./logout-button";
 import { DashboardClinicSupportBell } from "@/components/dashboard/DashboardClinicSupportBell";
+import { DashboardInboxProvider } from "@/components/dashboard/DashboardInboxContext";
 import { getSessionUserId } from "@/src/lib/auth/get-session";
 import { markPastAppointmentsCompleted } from "@/src/lib/markPastAppointmentsCompleted";
 import { runAppointmentReminders } from "@/src/lib/runAppointmentReminders";
@@ -29,6 +30,7 @@ export default async function DashboardLayout({
   }
 
   return (
+    <DashboardInboxProvider>
     <div className="min-h-screen bg-[#FDF9F0]">
       {/* Premium Top Navbar */}
       <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
@@ -66,5 +68,6 @@ export default async function DashboardLayout({
         {children}
       </main>
     </div>
+    </DashboardInboxProvider>
   );
 }

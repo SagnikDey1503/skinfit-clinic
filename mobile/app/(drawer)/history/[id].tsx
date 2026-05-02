@@ -19,6 +19,7 @@ import { buildScanReportPdfPayload } from "@/lib/buildScanReportPdfPayload";
 import { resolveAuthenticatedScanImageSource } from "@/lib/resolveScanImage";
 import { shareScanReportPdf } from "@/lib/scanReportPdf";
 import type { PatientTrackerReport } from "../../../../src/lib/patientTrackerReport.types";
+import { patientScanImageDisplayUrl } from "../../../../src/lib/patientScanImagePath";
 
 type ScanDetail = {
   scanId: number;
@@ -148,6 +149,7 @@ export default function ScanDetailScreen() {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
+        <Text style={styles.loadingText}>Loading report…</Text>
       </View>
     );
   }
@@ -178,7 +180,10 @@ export default function ScanDetailScreen() {
         userAge={row.userAge}
         userSkinType={row.userSkinType}
         scanTitle={row.scanTitle}
-        imageSource={resolveAuthenticatedScanImageSource(row.imageUrl, token)}
+        imageSource={resolveAuthenticatedScanImageSource(
+          patientScanImageDisplayUrl(row.imageUrl),
+          token
+        )}
         annotatedOverlayUri={row.annotatedImageUrl}
         regions={row.regions}
         metrics={row.metrics}
@@ -200,7 +205,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#fdf9f0",
     padding: 24,
+    gap: 12,
   },
+  loadingText: { fontSize: 15, fontWeight: "600", color: "#52525b" },
   err: { color: "#b91c1c", textAlign: "center", marginBottom: 16 },
   backBtn: { paddingVertical: 12, paddingHorizontal: 20 },
   backBtnText: { color: "#0d9488", fontWeight: "700" },

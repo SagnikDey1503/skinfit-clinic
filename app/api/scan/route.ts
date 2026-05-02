@@ -12,6 +12,7 @@ import {
   insertParameterScoresForScan,
 } from "../../../src/lib/insertParameterScores";
 import { readWebFormData } from "../../../src/lib/webRequestFormData";
+import { buildPreviewJpegDataUri } from "../../../src/lib/scanImagePreview";
 
 function isMissingFaceCaptureColumn(error: unknown): boolean {
   const err = error as { code?: string; message?: string };
@@ -189,7 +190,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const entries: Array<{ label: string; dataUri: string }> = [];
+    const entries: Array<{
+      label: string;
+      dataUri: string;
+      previewDataUri?: string;
+    }> = [];
     const filesForV2: Record<
       "centre" | "left" | "right" | "eyes_closed" | "smiling",
       File
@@ -204,9 +209,16 @@ export async function POST(request: NextRequest) {
       const file = multiRaw[i];
       const label = FACE_SCAN_CAPTURE_STEPS[i].id;
       const buf = Buffer.from(await file.arrayBuffer());
+      let previewDataUri: string | undefined;
+      try {
+        previewDataUri = await buildPreviewJpegDataUri(buf);
+      } catch {
+        previewDataUri = undefined;
+      }
       entries.push({
         label,
         dataUri: bufferToDataUri(buf, file.type || "image/jpeg"),
+        ...(previewDataUri ? { previewDataUri } : {}),
       });
       const k = keys[i];
       filesForV2[k] = new File([buf], file.name || `${k}.jpg`, {

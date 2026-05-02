@@ -66,6 +66,7 @@ export default async function HistoryPage() {
         visitDate: true,
         doctorName: true,
         notes: true,
+        attachments: true,
       },
       orderBy: [desc(visitNotes.visitDate)],
     }),
@@ -76,6 +77,8 @@ export default async function HistoryPage() {
         scanName: scans.scanName,
         audioDataUri: doctorFeedbackVoiceNotes.audioDataUri,
         createdAt: doctorFeedbackVoiceNotes.createdAt,
+        patientListenedAt: doctorFeedbackVoiceNotes.patientListenedAt,
+        patientArchivedAt: doctorFeedbackVoiceNotes.patientArchivedAt,
       })
       .from(doctorFeedbackVoiceNotes)
       .innerJoin(scans, eq(doctorFeedbackVoiceNotes.scanId, scans.id))
@@ -96,7 +99,7 @@ export default async function HistoryPage() {
     return {
       id: s.id,
       scanName: s.scanName,
-      imageUrl: patientScanImagePath(s.id),
+      imageUrl: patientScanImagePath(s.id, { preview: true }),
       overallScore: s.overallScore,
       acne: s.acne,
       pigmentation: s.pigmentation,
@@ -114,15 +117,24 @@ export default async function HistoryPage() {
     visitDateYmd: ymdFromDateOnly(v.visitDate),
     doctorName: v.doctorName,
     notes: v.notes,
+    attachments: v.attachments ?? null,
   }));
 
-  const reportVoiceNotes = reportVoiceRows.map((r) => ({
+  const mapReport = (r: (typeof reportVoiceRows)[number]) => ({
     id: r.id,
     scanId: r.scanId!,
     scanLabel: r.scanName?.trim() || "Report",
     audioDataUri: r.audioDataUri,
     createdAt: r.createdAt,
-  }));
+    listened: r.patientListenedAt != null,
+  });
+
+  const reportVoiceNotes = reportVoiceRows
+    .filter((r) => r.patientArchivedAt == null)
+    .map(mapReport);
+  const reportVoiceNotesArchived = reportVoiceRows
+    .filter((r) => r.patientArchivedAt != null)
+    .map(mapReport);
 
   return (
     <div className="space-y-6">
@@ -133,6 +145,7 @@ export default async function HistoryPage() {
         scans={scanRecords}
         visitNotes={visitRecords}
         reportVoiceNotes={reportVoiceNotes}
+        reportVoiceNotesArchived={reportVoiceNotesArchived}
         patient={patient}
       />
     </div>

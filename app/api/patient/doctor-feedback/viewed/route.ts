@@ -1,20 +1,58 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/src/db";
-import { users } from "@/src/db/schema";
+import { doctorFeedbackVoiceNotes } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
 
-/** Mark doctor feedback (incl. voice notes) as seen — clears “new” badge on dashboard. */
+type Scope = "dashboard" | "report" | "all";
+
+/** Mark voice notes as listened (bulk) — e.g. from Notifications shortcuts. */
 export async function POST(request: Request) {
   const userId = await getSessionUserIdFromRequest(request);
   if (!userId) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  await db
-    .update(users)
-    .set({ doctorFeedbackViewedAt: new Date() })
-    .where(eq(users.id, userId));
+  let scope: Scope = "all";
+  try {
+    const ct = request.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const body = (await request.json()) as { scope?: string };
+      if (
+        body.scope === "dashboard" ||
+        body.scope === "report" ||
+        body.scope === "all"
+      ) {
+        scope = body.scope;
+      }
+    }
+  } catch {
+    scope = "all";
+  }
+
+  const now = new Date();
+  const listenedWhere = [
+    eq(doctorFeedbackVoiceNotes.userId, userId),
+    isNull(doctorFeedbackVoiceNotes.patientArchivedAt),
+    isNull(doctorFeedbackVoiceNotes.patientListenedAt),
+  ] as const;
+
+  if (scope === "dashboard" || scope === "all") {
+    await db
+      .update(doctorFeedbackVoiceNotes)
+      .set({ patientListenedAt: now })
+      .where(
+        and(...listenedWhere, isNull(doctorFeedbackVoiceNotes.scanId))
+      );
+  }
+  if (scope === "report" || scope === "all") {
+    await db
+      .update(doctorFeedbackVoiceNotes)
+      .set({ patientListenedAt: now })
+      .where(
+        and(...listenedWhere, isNotNull(doctorFeedbackVoiceNotes.scanId))
+      );
+  }
 
   return NextResponse.json({ ok: true });
 }

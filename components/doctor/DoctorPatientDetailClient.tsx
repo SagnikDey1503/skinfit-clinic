@@ -2,11 +2,19 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Circle, Mic, Square } from "lucide-react";
-import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "@/src/lib/routine";
+import { ArrowLeft, Circle, Mic, Square, Trash2 } from "lucide-react";
+import { FACE_SCAN_CAPTURE_STEPS } from "@/src/lib/faceScanCaptures";
+import { MAX_VISIT_NOTE_ATTACHMENT_URI_LEN } from "@/src/lib/visitNoteAttachments";
 
 const MAX_RECORD_SECONDS = 120;
 const MAX_AUDIO_URI_LEN = 1_800_000;
+
+/** Doctor scan image URL with optional `preview=1`; append angle index for multi-capture. */
+function doctorScanAngleSrc(imageDoctorUrl: string, index: number): string {
+  if (index <= 0) return imageDoctorUrl;
+  const sep = imageDoctorUrl.includes("?") ? "&" : "?";
+  return `${imageDoctorUrl}${sep}i=${index}`;
+}
 
 type DetailJson = {
   success?: boolean;
@@ -46,6 +54,10 @@ type DetailJson = {
     cycleTrackingEnabled: boolean;
     appointmentReminderHoursBefore: number;
     createdAt: string;
+    routinePlanAmItems: string[] | null;
+    routinePlanPmItems: string[] | null;
+    /** When false, checklist steps are refreshed from the app template on each reminder cron. */
+    routinePlanClinicianLocked: boolean;
   };
   scans?: Array<{
     id: number;
@@ -81,16 +93,14 @@ type DetailJson = {
     visitDate: string;
     doctorName: string;
     notes: string;
+    attachments?: Array<{
+      fileName: string;
+      mimeType: string;
+      dataUri: string;
+    }> | null;
     createdAt: string;
   }>;
   recentVoiceNotes?: Array<{ id: string; scanId: number | null; createdAt: string }>;
-  dailyFocus?: Array<{
-    id: string;
-    focusDateYmd: string;
-    message: string;
-    sourceParam: string | null;
-    createdAt: string;
-  }>;
   dailyLogs?: Array<{
     id: string;
     dateYmd: string;
@@ -174,11 +184,15 @@ function RoutineStepsLine({
   labels: readonly string[];
   steps: boolean[] | null;
 }) {
-  if (!steps || steps.length === 0) return null;
+  const raw = steps ?? [];
+  const bits = labels.map((l, i) => `${l}: ${raw[i] ? "✓" : "—"}`);
+  for (let i = labels.length; i < raw.length; i += 1) {
+    bits.push(`Step ${i + 1}: ${raw[i] ? "✓" : "—"}`);
+  }
+  if (!bits.length) return null;
   return (
     <p className="mt-1 text-xs text-slate-600">
-      <span className="font-semibold text-slate-700">{title}:</span>{" "}
-      {labels.map((l, i) => `${l}: ${steps[i] ? "✓" : "—"}`).join(" · ")}
+      <span className="font-semibold text-slate-700">{title}:</span> {bits.join(" · ")}
     </p>
   );
 }
@@ -201,22 +215,33 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
   const [busy, setBusy] = useState(false);
   const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
   const [clinicianMsg, setClinicianMsg] = useState<string | null>(null);
-  const [focusMessage, setFocusMessage] = useState("");
-  const [focusSourceParam, setFocusSourceParam] = useState("");
-  const [focusDateYmd, setFocusDateYmd] = useState("");
   const [routineAmHm, setRoutineAmHm] = useState("08:30");
   const [routinePmHm, setRoutinePmHm] = useState("22:00");
   const [routineTz, setRoutineTz] = useState("Asia/Kolkata");
   const [routineEnabled, setRoutineEnabled] = useState(true);
+  const [routinePlanAmText, setRoutinePlanAmText] = useState("");
+  const [routinePlanPmText, setRoutinePlanPmText] = useState("");
+  /** Prevents refetch-driven useEffect from wiping AM/PM textareas mid-edit (e.g. after voice upload). */
+  const [routinePlanTextDirty, setRoutinePlanTextDirty] = useState(false);
+  const [visitNoteText, setVisitNoteText] = useState("");
+  const [visitNoteDateYmd, setVisitNoteDateYmd] = useState("");
+  const [visitNoteFiles, setVisitNoteFiles] = useState<File[]>([]);
+  const [visitNoteBusy, setVisitNoteBusy] = useState(false);
+  const [visitNoteFlash, setVisitNoteFlash] = useState<string | null>(null);
   const [clinicianBusy, setClinicianBusy] = useState(false);
   const [selectedScanId, setSelectedScanId] = useState<string>("");
   const [isRecording, setIsRecording] = useState(false);
   const [recordElapsed, setRecordElapsed] = useState(0);
+  const [voicePreview, setVoicePreview] = useState<{
+    blob: Blob;
+    url: string;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voicePreviewUrlRef = useRef<string | null>(null);
 
   const stopMicStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -227,14 +252,36 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
     return () => {
       stopMicStream();
       if (tickRef.current) clearInterval(tickRef.current);
+      if (voicePreviewUrlRef.current) {
+        URL.revokeObjectURL(voicePreviewUrlRef.current);
+        voicePreviewUrlRef.current = null;
+      }
     };
   }, [stopMicStream]);
+
+  const clearVoicePreview = useCallback(() => {
+    if (voicePreviewUrlRef.current) {
+      URL.revokeObjectURL(voicePreviewUrlRef.current);
+      voicePreviewUrlRef.current = null;
+    }
+    setVoicePreview(null);
+  }, []);
+
+  const commitVoicePreview = useCallback((blob: Blob) => {
+    const url = URL.createObjectURL(blob);
+    if (voicePreviewUrlRef.current) {
+      URL.revokeObjectURL(voicePreviewUrlRef.current);
+    }
+    voicePreviewUrlRef.current = url;
+    setVoicePreview({ blob, url });
+  }, []);
 
   const load = useCallback(async () => {
     setErr(null);
     try {
       const res = await fetch(`/api/doctor/patients/${patientId}`, {
         credentials: "include",
+        cache: "no-store",
       });
       const j = (await res.json()) as DetailJson & { error?: string };
       if (!res.ok || !j.success) {
@@ -254,16 +301,24 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
   }, [load]);
 
   useEffect(() => {
+    setRoutinePlanTextDirty(false);
+  }, [patientId]);
+
+  useEffect(() => {
     if (!data?.patient) return;
     const p = data.patient;
     setRoutineAmHm(p.routineAmReminderHm ?? "08:30");
     setRoutinePmHm(p.routinePmReminderHm ?? "22:00");
     setRoutineTz(p.timezone ?? "Asia/Kolkata");
     setRoutineEnabled(p.routineRemindersEnabled);
-    if (data.calendarTodayYmd) {
-      setFocusDateYmd(data.calendarTodayYmd);
+    if (!routinePlanTextDirty) {
+      setRoutinePlanAmText((p.routinePlanAmItems ?? []).join("\n"));
+      setRoutinePlanPmText((p.routinePlanPmItems ?? []).join("\n"));
     }
-  }, [data]);
+    if (data.calendarTodayYmd) {
+      setVisitNoteDateYmd(data.calendarTodayYmd);
+    }
+  }, [data, routinePlanTextDirty]);
 
   const uploadVoiceDataUri = useCallback(
     async (audioDataUri: string) => {
@@ -299,22 +354,29 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
           return;
         }
         await uploadVoiceDataUri(audioDataUri);
+        clearVoicePreview();
       } catch {
         setVoiceMsg("Could not process audio.");
       } finally {
         setBusy(false);
       }
     },
-    [uploadVoiceDataUri]
+    [uploadVoiceDataUri, clearVoicePreview]
   );
 
-  async function sendVoiceNote(file: File | null) {
+  function queueVoiceFilePreview(file: File | null) {
     if (!file) return;
-    await sendVoiceBlob(file);
+    setVoiceMsg(null);
+    if (file.size < 800) {
+      setVoiceMsg("File too small — choose another clip.");
+      return;
+    }
+    commitVoicePreview(file);
   }
 
   const startMicRecording = useCallback(async () => {
     setVoiceMsg(null);
+    clearVoicePreview();
     if (busy || isRecording) return;
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setVoiceMsg("Recording is not supported in this browser.");
@@ -362,7 +424,7 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
           setVoiceMsg("Recording too short — try again.");
           return;
         }
-        void sendVoiceBlob(blob);
+        commitVoicePreview(blob);
       };
 
       recorder.start(250);
@@ -378,7 +440,7 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
             }
             const mr = mediaRecorderRef.current;
             if (mr && mr.state === "recording") mr.stop();
-            setVoiceMsg("Stopped at 2 min limit — sending…");
+            setVoiceMsg(null);
             return MAX_RECORD_SECONDS;
           }
           return next;
@@ -387,7 +449,7 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
     } catch {
       setVoiceMsg("Allow microphone access to record, or upload a file instead.");
     }
-  }, [busy, isRecording, stopMicStream, sendVoiceBlob]);
+  }, [busy, isRecording, stopMicStream, clearVoicePreview, commitVoicePreview]);
 
   const stopMicRecording = useCallback(() => {
     const mr = mediaRecorderRef.current;
@@ -555,28 +617,6 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-3 text-lg font-semibold text-slate-900">Daily goals (clinician-set)</h2>
-        {(data.dailyFocus ?? []).length === 0 ? (
-          <p className="text-sm text-slate-500">No daily focus rows yet — set one above.</p>
-        ) : (
-          <ul className="space-y-3 text-sm">
-            {(data.dailyFocus ?? []).map((f) => (
-              <li
-                key={f.id}
-                className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2"
-              >
-                <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-500">
-                  <span className="font-semibold text-teal-800">{f.focusDateYmd}</span>
-                  {f.sourceParam ? <span>Source: {f.sourceParam}</span> : null}
-                </div>
-                <p className="mt-1 text-slate-800">{f.message}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="mb-3 text-lg font-semibold text-slate-900">
           Daily wellness &amp; journal
         </h2>
@@ -598,8 +638,16 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
                   {log.sunExposure ? ` · Sun ${log.sunExposure}` : ""}
                   {log.cycleDay != null ? ` · Cycle day ${log.cycleDay}` : ""}
                 </p>
-                <RoutineStepsLine title="AM steps" labels={AM_ROUTINE_ITEMS} steps={log.routineAmSteps} />
-                <RoutineStepsLine title="PM steps" labels={PM_ROUTINE_ITEMS} steps={log.routinePmSteps} />
+                <RoutineStepsLine
+                  title="AM steps"
+                  labels={p.routinePlanAmItems ?? []}
+                  steps={log.routineAmSteps}
+                />
+                <RoutineStepsLine
+                  title="PM steps"
+                  labels={p.routinePlanPmItems ?? []}
+                  steps={log.routinePmSteps}
+                />
                 {log.journalEntry?.trim() ? (
                   <p className="mt-2 whitespace-pre-wrap text-slate-800">{log.journalEntry}</p>
                 ) : null}
@@ -614,88 +662,169 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
 
       <div className="rounded-xl border border-teal-100 bg-teal-50/40 p-5 font-sans shadow-sm antialiased">
         <h2 className="mb-2 text-xl font-bold tracking-tight text-slate-900">
-          Clinician: daily focus &amp; routine
+          Clinician: patient AM/PM routine
         </h2>
         <p className="mb-5 text-sm font-normal leading-relaxed text-slate-600">
-          Daily goals are not auto-generated. Set the patient&apos;s focus for one calendar day. Defaults
-          to{" "}
+          After onboarding, use the checklist below so the patient&apos;s dashboard shows your steps.
+          Calendar reference:{" "}
           <span className="font-semibold text-slate-800">today in their timezone</span> (
-          {data.calendarTodayYmd ?? "—"} · {p.timezone}). Scheduled AM/PM chat nudges use these times in
-          that same timezone.
+          {data.calendarTodayYmd ?? "—"} · {p.timezone}). Scheduled AM/PM chat nudges use these times.
         </p>
 
         <div className="space-y-4 rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-            Daily focus message
+            Patient AM/PM checklist (dashboard)
           </p>
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-slate-800">Focus text</span>
-            <textarea
-              value={focusMessage}
-              onChange={(e) => setFocusMessage(e.target.value)}
-              rows={4}
-              className="min-h-[100px] w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[15px] leading-relaxed text-slate-900 shadow-sm placeholder:text-slate-400 transition-colors focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-              placeholder="e.g. Prioritise barrier repair and SPF today."
-            />
-          </label>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-slate-800">Source tag (optional)</span>
-              <input
-                value={focusSourceParam}
-                onChange={(e) => setFocusSourceParam(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[15px] text-slate-900 shadow-sm placeholder:text-slate-400 transition-colors focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                placeholder="param key / internal label"
-              />
-            </label>
-            <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-slate-800">Date (YYYY-MM-DD)</span>
-              <input
-                value={focusDateYmd}
-                onChange={(e) => setFocusDateYmd(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[15px] tabular-nums text-slate-900 shadow-sm placeholder:text-slate-400 transition-colors focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                placeholder={data.calendarTodayYmd ?? "YYYY-MM-DD"}
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            disabled={clinicianBusy}
-            onClick={async () => {
-              setClinicianMsg(null);
-              setClinicianBusy(true);
-              try {
-                const res = await fetch(
-                  `/api/doctor/patients/${patientId}/daily-focus`,
-                  {
-                    method: "POST",
-                    credentials: "include",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      message: focusMessage,
-                      sourceParam: focusSourceParam || undefined,
-                      focusDateYmd: focusDateYmd.trim() || undefined,
-                    }),
-                  }
-                );
-                const j = (await res.json()) as { ok?: boolean; error?: string };
-                if (!res.ok || !j.ok) {
-                  setClinicianMsg(j.error ?? "Could not save focus.");
-                  return;
-                }
-                setClinicianMsg("Daily focus saved.");
-                setFocusMessage("");
-                void load();
-              } catch {
-                setClinicianMsg("Network error.");
-              } finally {
-                setClinicianBusy(false);
-              }
-            }}
-            className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:opacity-50"
-          >
-            Save daily focus
-          </button>
+          <p className="text-sm leading-relaxed text-slate-600">
+            Until you save below, patients see a short message that their customised daily plan will
+            come from the clinic — they do not get a generic default checklist. Saving here sets their
+            AM/PM steps on the dashboard and enables routine reminders that use these labels.
+          </p>
+          {p.onboardingComplete ? (
+            <p className="text-xs font-medium text-slate-600">
+              Status:{" "}
+              {p.routinePlanClinicianLocked ? (
+                <span className="text-teal-800">Personalized — checklist saved</span>
+              ) : (
+                <span className="text-amber-800">
+                  Awaiting your saved checklist (patient sees “plan from clinic soon”)
+                </span>
+              )}
+            </p>
+          ) : null}
+          {!p.onboardingComplete ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-amber-950">
+              Finish patient onboarding before assigning a routine plan.
+            </p>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-slate-800">AM steps (one per line)</span>
+                  <textarea
+                    value={routinePlanAmText}
+                    onChange={(e) => {
+                      setRoutinePlanTextDirty(true);
+                      setRoutinePlanAmText(e.target.value);
+                    }}
+                    rows={6}
+                    className="min-h-[120px] w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 font-mono text-[14px] leading-snug text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                    placeholder={"Gentle Cleanser\nToner\nSerum\n…"}
+                  />
+                </label>
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-slate-800">PM steps (one per line)</span>
+                  <textarea
+                    value={routinePlanPmText}
+                    onChange={(e) => {
+                      setRoutinePlanTextDirty(true);
+                      setRoutinePlanPmText(e.target.value);
+                    }}
+                    rows={6}
+                    className="min-h-[120px] w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 font-mono text-[14px] leading-snug text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                    placeholder={"Oil Cleanser\nToner\nRetinol\n…"}
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={clinicianBusy}
+                  onClick={async () => {
+                    setClinicianMsg(null);
+                    setClinicianBusy(true);
+                    try {
+                      const amItems = routinePlanAmText
+                        .split("\n")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                      const pmItems = routinePlanPmText
+                        .split("\n")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                      const res = await fetch(
+                        `/api/doctor/patients/${patientId}/routine-plan`,
+                        {
+                          method: "PATCH",
+                          credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ amItems, pmItems }),
+                        }
+                      );
+                      const j = (await res.json()) as { ok?: boolean; error?: string };
+                      if (!res.ok || !j.ok) {
+                        setClinicianMsg(j.error ?? "Could not save routine plan.");
+                        return;
+                      }
+                      setClinicianMsg("Patient AM/PM checklist updated.");
+                      await load();
+                      setRoutinePlanTextDirty(false);
+                    } catch {
+                      setClinicianMsg("Network error.");
+                    } finally {
+                      setClinicianBusy(false);
+                    }
+                  }}
+                  className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:opacity-50"
+                >
+                  Save AM/PM checklist
+                </button>
+                {p.routinePlanClinicianLocked ||
+                (p.routinePlanAmItems?.length ?? 0) > 0 ||
+                (p.routinePlanPmItems?.length ?? 0) > 0 ? (
+                  <button
+                    type="button"
+                    disabled={clinicianBusy}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          "Remove the AM/PM checklist from this patient’s dashboard? They will see that their customised plan will come from the clinic until you save a new checklist. Daily checkmarks are not deleted but won’t show until steps exist again."
+                        )
+                      ) {
+                        return;
+                      }
+                      void (async () => {
+                        setClinicianMsg(null);
+                        setClinicianBusy(true);
+                        try {
+                          const res = await fetch(
+                            `/api/doctor/patients/${patientId}/routine-plan`,
+                            {
+                              method: "PATCH",
+                              credentials: "include",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ clear: true }),
+                            }
+                          );
+                          const j = (await res.json()) as {
+                            ok?: boolean;
+                            error?: string;
+                          };
+                          if (!res.ok || !j.ok) {
+                            setClinicianMsg(
+                              j.error ?? "Could not remove checklist."
+                            );
+                            return;
+                          }
+                          setClinicianMsg("Checklist removed from patient dashboard.");
+                          await load();
+                          setRoutinePlanTextDirty(false);
+                        } catch {
+                          setClinicianMsg("Network error.");
+                        } finally {
+                          setClinicianBusy(false);
+                        }
+                      })();
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-800 shadow-sm hover:bg-red-50 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+                    Remove checklist
+                  </button>
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="mt-5 space-y-4 rounded-xl border border-slate-200/90 bg-white p-5 shadow-sm">
@@ -872,7 +1001,8 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
           Voice note to patient
         </h2>
         <p className="mb-3 text-sm text-slate-600">
-          Record in the browser or upload a file. The patient sees it on their dashboard and gets a bell / push alert. Max about{" "}
+          Record in the browser or upload a file — you&apos;ll always hear a preview before it&apos;s
+          sent. The patient sees it on their dashboard and gets a bell / push alert. Max about{" "}
           {MAX_RECORD_SECONDS / 60} minutes per recording.
         </p>
         {data.recentVoiceNotes && data.recentVoiceNotes.length > 0 ? (
@@ -910,19 +1040,50 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Record here
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              {!isRecording ? (
+            <div className="flex flex-col gap-3">
+              {voicePreview ? (
+                <>
+                  <p className="text-xs font-medium text-slate-600">
+                    Preview — listen below, then send or discard.
+                  </p>
+                  <audio
+                    controls
+                    src={voicePreview.url}
+                    className="h-10 w-full max-w-md"
+                  >
+                    Your browser does not support audio preview.
+                  </audio>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void sendVoiceBlob(voicePreview.blob)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-500 disabled:opacity-50"
+                    >
+                      Send to patient
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={clearVoicePreview}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </>
+              ) : !isRecording ? (
                 <button
                   type="button"
                   onClick={() => void startMicRecording()}
                   disabled={busy}
-                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+                  className="inline-flex w-fit items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
                 >
                   <Circle className="h-4 w-4 fill-current" aria-hidden />
                   Start recording
                 </button>
               ) : (
-                <>
+                <div className="flex flex-wrap items-center gap-3">
                   <span className="tabular-nums text-lg font-bold text-rose-700">
                     {formatMmSs(recordElapsed)}
                   </span>
@@ -932,16 +1093,20 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
                     className="inline-flex items-center gap-2 rounded-xl border-2 border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
                   >
                     <Square className="h-4 w-4 fill-current" aria-hidden />
-                    Stop &amp; send
+                    Stop recording
                   </button>
-                  <span className="text-xs text-slate-500">Recording… speak clearly</span>
-                </>
+                  <span className="text-xs text-slate-500">
+                    Recording… you&apos;ll preview before sending
+                  </span>
+                </div>
               )}
             </div>
           </div>
 
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-slate-700">Or upload an audio file</span>
+            <span className="text-slate-700">
+              Or upload an audio file (preview before send)
+            </span>
             <input
               type="file"
               accept="audio/*"
@@ -949,7 +1114,7 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
                 e.target.value = "";
-                void sendVoiceNote(f);
+                queueVoiceFilePreview(f);
               }}
               className="text-sm"
             />
@@ -975,7 +1140,14 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
                   key={s.id}
                   className="group rounded-xl border border-slate-200 bg-slate-50/50 open:bg-white"
                 >
-                  <summary className="cursor-pointer list-none p-4 [&::-webkit-details-marker]:hidden">
+                  <summary
+                    className="cursor-pointer list-none p-4 [&::-webkit-details-marker]:hidden"
+                    title={
+                      s.faceCaptureCount > 1
+                        ? "Open to view all face capture angles"
+                        : undefined
+                    }
+                  >
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-[10.5rem_minmax(0,1fr)] sm:items-start sm:gap-5">
                       <div className="relative mx-auto h-36 w-36 min-h-0 min-w-0 max-w-[168px] overflow-hidden rounded-lg bg-slate-100 sm:mx-0 sm:h-32 sm:w-[10.5rem] sm:max-w-none">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -986,7 +1158,7 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
                         />
                         {s.faceCaptureCount > 1 ? (
                           <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
-                            {s.faceCaptureCount} angles
+                            {s.faceCaptureCount} angles — open card
                           </span>
                         ) : null}
                       </div>
@@ -1026,6 +1198,34 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
                     </div>
                   </summary>
                   <div className="space-y-3 border-t border-slate-100 px-4 pb-4 pt-2 text-sm">
+                    {s.faceCaptureCount > 1 ? (
+                      <div className="pb-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Face captures
+                        </p>
+                        <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                          {Array.from({ length: s.faceCaptureCount }, (_, i) => (
+                            <figure
+                              key={`${s.id}-angle-${i}`}
+                              className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={doctorScanAngleSrc(s.imageDoctorUrl, i)}
+                                alt={
+                                  FACE_SCAN_CAPTURE_STEPS[i]?.title ?? `Capture ${i + 1}`
+                                }
+                                className="aspect-[3/4] w-full object-cover"
+                                loading="lazy"
+                              />
+                              <figcaption className="px-1.5 py-1.5 text-center text-[10px] font-medium leading-tight text-slate-600">
+                                {FACE_SCAN_CAPTURE_STEPS[i]?.title ?? `Angle ${i + 1}`}
+                              </figcaption>
+                            </figure>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     {s.aiSummary?.trim() ? (
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1036,32 +1236,43 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
                     ) : null}
                     {params.length > 0 ? (
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                           kAI parameters
                         </p>
                         <div className="mt-2 overflow-x-auto">
-                          <table className="w-full min-w-[420px] text-left text-xs">
+                          <table className="w-full min-w-[420px] text-left text-sm text-slate-900">
                             <thead>
-                              <tr className="border-b border-slate-200 text-slate-500">
-                                <th className="py-1 pr-2">Parameter</th>
-                                <th className="py-1 pr-2">Value</th>
-                                <th className="py-1 pr-2">Source</th>
-                                <th className="py-1 pr-2">Δ prev</th>
-                                <th className="py-1">Flag</th>
+                              <tr className="border-b border-slate-300 bg-slate-50/90">
+                                <th className="py-2 pr-3 font-semibold text-slate-700">
+                                  Parameter
+                                </th>
+                                <th className="py-2 pr-3 font-semibold text-slate-700">Value</th>
+                                <th className="py-2 pr-3 font-semibold text-slate-700">Source</th>
+                                <th className="py-2 pr-3 font-semibold text-slate-700">Δ prev</th>
+                                <th className="py-2 font-semibold text-slate-700">Flag</th>
                               </tr>
                             </thead>
                             <tbody>
                               {params.map((row) => (
-                                <tr key={`${row.paramKey}-${row.recordedAt}`} className="border-b border-slate-100">
-                                  <td className="py-1.5 pr-2 font-medium text-slate-800">
+                                <tr
+                                  key={`${row.paramKey}-${row.recordedAt}`}
+                                  className="border-b border-slate-100 bg-white"
+                                >
+                                  <td className="py-2 pr-3 font-medium text-slate-800">
                                     {row.paramKey}
                                   </td>
-                                  <td className="py-1.5 pr-2 tabular-nums">{row.value ?? "—"}</td>
-                                  <td className="py-1.5 pr-2">{row.source}</td>
-                                  <td className="py-1.5 pr-2 tabular-nums">
+                                  <td className="py-2 pr-3 tabular-nums font-medium text-slate-900">
+                                    {row.value ?? "—"}
+                                  </td>
+                                  <td className="py-2 pr-3 capitalize text-slate-800">
+                                    {row.source}
+                                  </td>
+                                  <td className="py-2 pr-3 tabular-nums font-medium text-slate-900">
                                     {row.deltaVsPrev ?? "—"}
                                   </td>
-                                  <td className="py-1.5">{row.severityFlag ? "Yes" : "—"}</td>
+                                  <td className="py-2 font-medium text-slate-900">
+                                    {row.severityFlag ? "Yes" : "—"}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1087,8 +1298,127 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="mb-3 text-lg font-semibold text-slate-900">Clinic visit notes</h2>
+        <p className="mb-4 text-sm leading-relaxed text-slate-600">
+          Add a text note and optional PDFs or images. Patients see these on{" "}
+          <span className="font-semibold text-slate-800">Treatment history</span>. Up to 5 files per
+          note; keep each file modest in size (roughly under 1&nbsp;MB) so upload succeeds.
+        </p>
+        <div className="mb-6 space-y-3 rounded-xl border border-slate-200/90 bg-slate-50/80 p-4">
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-slate-800">Visit date</span>
+            <input
+              type="date"
+              value={visitNoteDateYmd}
+              onChange={(e) => setVisitNoteDateYmd(e.target.value)}
+              className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-slate-800">Note text</span>
+            <textarea
+              value={visitNoteText}
+              onChange={(e) => setVisitNoteText(e.target.value)}
+              rows={4}
+              className="min-h-[96px] w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+              placeholder="Clinical findings, plan, instructions…"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-slate-800">
+              Attach documents (PDF, images, plain text)
+            </span>
+            <input
+              type="file"
+              multiple
+              accept=".pdf,application/pdf,image/*,text/plain"
+              className="text-sm text-slate-800 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium"
+              onChange={(e) => {
+                const list = Array.from(e.target.files ?? []).slice(0, 5);
+                setVisitNoteFiles(list);
+                e.target.value = "";
+              }}
+            />
+            {visitNoteFiles.length > 0 ? (
+              <ul className="text-xs text-slate-600">
+                {visitNoteFiles.map((f) => (
+                  <li key={`${f.name}-${f.size}`}>
+                    {f.name} ({Math.round(f.size / 1024)} KB)
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </label>
+          <button
+            type="button"
+            disabled={visitNoteBusy}
+            onClick={async () => {
+              setVisitNoteFlash(null);
+              setVisitNoteBusy(true);
+              try {
+                const rawMax = Math.floor(MAX_VISIT_NOTE_ATTACHMENT_URI_LEN * 0.72);
+                const files = visitNoteFiles.slice(0, 5);
+                for (const f of files) {
+                  if (f.size > rawMax) {
+                    setVisitNoteFlash(
+                      `File too large: ${f.name}. Use a smaller file (under ~${Math.round(rawMax / 1024)} KB).`
+                    );
+                    return;
+                  }
+                }
+                const attachments: Array<{
+                  fileName: string;
+                  mimeType: string;
+                  dataUri: string;
+                }> = [];
+                for (const f of files) {
+                  const dataUri = await blobToDataUri(f);
+                  if (dataUri.length > MAX_VISIT_NOTE_ATTACHMENT_URI_LEN) {
+                    setVisitNoteFlash(`Encoded file too large: ${f.name}.`);
+                    return;
+                  }
+                  attachments.push({
+                    fileName: f.name.slice(0, 200),
+                    mimeType: f.type || "application/octet-stream",
+                    dataUri,
+                  });
+                }
+                const res = await fetch(`/api/doctor/patients/${patientId}/visit-notes`, {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    notes: visitNoteText,
+                    visitDateYmd: visitNoteDateYmd.trim() || undefined,
+                    attachments: attachments.length ? attachments : undefined,
+                  }),
+                });
+                const j = (await res.json()) as { ok?: boolean; error?: string };
+                if (!res.ok || !j.ok) {
+                  setVisitNoteFlash(j.error ?? "Could not save visit note.");
+                  return;
+                }
+                setVisitNoteFlash("Visit note saved.");
+                setVisitNoteText("");
+                setVisitNoteFiles([]);
+                void load();
+              } catch {
+                setVisitNoteFlash("Network error.");
+              } finally {
+                setVisitNoteBusy(false);
+              }
+            }}
+            className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-500 disabled:opacity-50"
+          >
+            {visitNoteBusy ? "Saving…" : "Save visit note"}
+          </button>
+          {visitNoteFlash ? (
+            <p className="text-sm font-medium text-teal-900" role="status">
+              {visitNoteFlash}
+            </p>
+          ) : null}
+        </div>
         {(data.visits ?? []).length === 0 ? (
-          <p className="text-sm text-slate-500">No visits on file.</p>
+          <p className="text-sm text-slate-500">No visits on file yet.</p>
         ) : (
           <ul className="space-y-3">
             {(data.visits ?? []).map((v) => (
@@ -1100,6 +1430,22 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
                   {v.visitDate} · {v.doctorName}
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-slate-700">{v.notes}</p>
+                {v.attachments && v.attachments.length > 0 ? (
+                  <ul className="mt-2 space-y-1 border-t border-slate-200/80 pt-2">
+                    {v.attachments.map((att, idx) => (
+                      <li key={`${v.id}-a-${idx}`}>
+                        <a
+                          href={att.dataUri}
+                          download={att.fileName}
+                          className="font-medium text-teal-700 underline decoration-teal-600/40 hover:text-teal-800"
+                        >
+                          {att.fileName}
+                        </a>
+                        <span className="ml-2 text-xs text-slate-500">({att.mimeType})</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </li>
             ))}
           </ul>

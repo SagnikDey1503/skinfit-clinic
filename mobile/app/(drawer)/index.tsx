@@ -56,15 +56,23 @@ type HomeData = {
   routineScore: number;
   weeklyChangePercent: number;
   doctorFeedback: string;
-  todayFocus: {
-    phase?: "onboarding" | "awaiting_clinician" | "active";
-    message: string | null;
-    sourceParam: string | null;
-  };
   homeDateYmd?: string;
   streakCurrent: number;
   streakLongest: number;
   cycleTrackingEnabled: boolean;
+  doctorVoiceNotes?: Array<{
+    id: string;
+    audioDataUri: string;
+    createdAt: string;
+    listened: boolean;
+  }>;
+  doctorArchivedVoiceNotes?: Array<{
+    id: string;
+    audioDataUri: string;
+    createdAt: string;
+    listened: boolean;
+  }>;
+  /** @deprecated use doctorVoiceNotes */
   doctorVoiceNote: {
     id: string;
     audioDataUri: string;
@@ -72,6 +80,8 @@ type HomeData = {
   } | null;
   doctorVoiceNoteIsNew: boolean;
   onboardingComplete?: boolean;
+  /** False after onboarding until clinician saves AM/PM step list. */
+  routinePlanReady?: boolean;
 };
 
 const MOODS = ["Neutral", "Great", "Okay", "Low", "Stressed"] as const;
@@ -89,6 +99,14 @@ export default function DashboardScreen() {
   const [routine, setRoutine] = useState({ am: [] as boolean[], pm: [] as boolean[] });
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
+
+  const routineHasSteps = (d: HomeData | null) =>
+    Boolean(
+      d?.onboardingComplete &&
+        d.routinePlanReady &&
+        (d.amItems?.length ?? 0) > 0 &&
+        (d.pmItems?.length ?? 0) > 0
+    );
   const [journalDate, setJournalDate] = useState(todayStr);
   const [sleep, setSleep] = useState("0");
   const [stress, setStress] = useState("5");
@@ -105,6 +123,8 @@ export default function DashboardScreen() {
   const [cycleDay, setCycleDay] = useState("");
   const [doctorReply, setDoctorReply] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
+  const [showArchivedVoices, setShowArchivedVoices] = useState(false);
+  const [voiceBusyId, setVoiceBusyId] = useState<string | null>(null);
 
   const loadHome = useCallback(async () => {
     if (!token) return;
@@ -119,17 +139,15 @@ export default function DashboardScreen() {
         json.weeklyDeltaScore ?? json.weeklyChangePercent ?? 0,
       lifestyleAlignmentScore:
         json.lifestyleAlignmentScore ?? json.routineScore ?? 0,
-      todayFocus: json.todayFocus ?? {
-        phase: "awaiting_clinician",
-        message: null,
-        sourceParam: null,
-      },
       streakCurrent: json.streakCurrent ?? 0,
       streakLongest: json.streakLongest ?? 0,
       cycleTrackingEnabled: json.cycleTrackingEnabled ?? false,
       homeDateYmd: json.homeDateYmd,
+      doctorVoiceNotes: json.doctorVoiceNotes ?? [],
+      doctorArchivedVoiceNotes: json.doctorArchivedVoiceNotes ?? [],
       doctorVoiceNote: json.doctorVoiceNote ?? null,
       doctorVoiceNoteIsNew: json.doctorVoiceNoteIsNew ?? false,
+      routinePlanReady: json.routinePlanReady ?? false,
     });
     setSelectedScanIdx(0);
     const am = normalizeRoutineSteps(
@@ -144,6 +162,25 @@ export default function DashboardScreen() {
     );
     setRoutine({ am, pm });
   }, [token]);
+
+  const patchVoiceNote = useCallback(
+    async (id: string, body: { listened?: boolean; archived?: boolean }) => {
+      if (!token) return;
+      setVoiceBusyId(id);
+      try {
+        await apiJson(`/api/patient/voice-notes/${id}`, token, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        await loadHome();
+      } catch {
+        /* ignore */
+      } finally {
+        setVoiceBusyId(null);
+      }
+    },
+    [token, loadHome]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -343,26 +380,11 @@ export default function DashboardScreen() {
         <Gauge label="Lifestyle alignment" value={data.lifestyleAlignmentScore} />
       </View>
 
-      <View style={[styles.card, styles.focusBanner]}>
-        <Text style={styles.focusKicker}>TODAY&apos;S FOCUS</Text>
-        {data.todayFocus.phase === "onboarding" ? (
-          <Text style={styles.focusMessage}>
-            Complete onboarding first — then your clinician will set daily goals here.
-          </Text>
-        ) : data.todayFocus.phase === "awaiting_clinician" ||
-          !data.todayFocus.message ? (
-          <Text style={styles.focusMessage}>
-            Your clinician will set your daily focus here after your first visit plan is ready.
-          </Text>
-        ) : (
-          <Text style={styles.focusMessage}>{data.todayFocus.message}</Text>
-        )}
-        {data.homeDateYmd ? (
-          <Text style={[styles.muted, { marginTop: 8 }]}>
-            Day: {data.homeDateYmd}
-          </Text>
-        ) : null}
-      </View>
+      {data.homeDateYmd ? (
+        <View style={[styles.card, { marginTop: 14, paddingVertical: 10 }]}>
+          <Text style={[styles.muted, { marginBottom: 0 }]}>Day: {data.homeDateYmd}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.streakRow}>
         <Text style={styles.streakText}>
@@ -371,7 +393,14 @@ export default function DashboardScreen() {
         </Text>
       </View>
 
-      <DayQuestBannerMobile routineProgress={routineProgress} />
+      <DayQuestBannerMobile
+        routineProgress={routineProgress}
+        questSubtext={
+          data.onboardingComplete && !routineHasSteps(data)
+            ? "Your customised daily plan will be given by the clinic soon."
+            : null
+        }
+      />
 
       <View style={[styles.card, { marginTop: 16 }]}>
         <View style={styles.rowBetween}>
@@ -381,36 +410,54 @@ export default function DashboardScreen() {
           </View>
           <Text style={styles.muted}>{format(new Date(), "dd/MM/yy")}</Text>
         </View>
-        <View style={styles.routineRow}>
-          <View style={styles.routineCol}>
-            <Text style={styles.sub}>AM</Text>
-            {data.amItems.map((item, i) => (
-              <Pressable key={item} style={styles.stepRow} onPress={() => toggleAm(i)}>
-                <View
-                  style={[
-                    styles.checkbox,
-                    routine.am[i] ? { backgroundColor: TEAL, borderColor: TEAL } : null,
-                  ]}
-                />
-                <Text style={styles.stepLabel}>{item}</Text>
-              </Pressable>
-            ))}
+        {data.onboardingComplete === false ? (
+          <Text style={styles.routinePending}>
+            Finish onboarding first. Your clinician will then set your AM/PM steps.
+          </Text>
+        ) : !routineHasSteps(data) ? (
+          <Text style={styles.routinePending}>
+            Your customised daily plan will be given by the clinic soon.
+          </Text>
+        ) : (
+          <View style={styles.routineRow}>
+            <View style={styles.routineCol}>
+              <Text style={styles.sub}>AM</Text>
+              {data.amItems.map((item, i) => (
+                <Pressable
+                  key={`am-${i}-${item}`}
+                  style={styles.stepRow}
+                  onPress={() => toggleAm(i)}
+                >
+                  <View
+                    style={[
+                      styles.checkbox,
+                      routine.am[i] ? { backgroundColor: TEAL, borderColor: TEAL } : null,
+                    ]}
+                  />
+                  <Text style={styles.stepLabel}>{item}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.routineCol}>
+              <Text style={styles.sub}>PM</Text>
+              {data.pmItems.map((item, i) => (
+                <Pressable
+                  key={`pm-${i}-${item}`}
+                  style={styles.stepRow}
+                  onPress={() => togglePm(i)}
+                >
+                  <View
+                    style={[
+                      styles.checkbox,
+                      routine.pm[i] ? { backgroundColor: TEAL, borderColor: TEAL } : null,
+                    ]}
+                  />
+                  <Text style={styles.stepLabel}>{item}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
-          <View style={styles.routineCol}>
-            <Text style={styles.sub}>PM</Text>
-            {data.pmItems.map((item, i) => (
-              <Pressable key={item} style={styles.stepRow} onPress={() => togglePm(i)}>
-                <View
-                  style={[
-                    styles.checkbox,
-                    routine.pm[i] ? { backgroundColor: TEAL, borderColor: TEAL } : null,
-                  ]}
-                />
-                <Text style={styles.stepLabel}>{item}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
+        )}
       </View>
 
       <View style={{ marginTop: 20, marginBottom: 8, gap: 8 }}>
@@ -566,29 +613,90 @@ export default function DashboardScreen() {
             </View>
           ) : null}
         </View>
-        {data.doctorVoiceNote ? (
-          <DoctorVoiceNotePlayer
-            uri={data.doctorVoiceNote.audioDataUri}
-            onPlayStart={async () => {
-              try {
-                await apiJson(`/api/patient/doctor-feedback/viewed`, token!, {
-                  method: "POST",
-                });
-                await loadHome();
-              } catch {
-                /* ignore */
-              }
-            }}
-          />
+        {(data.doctorVoiceNotes?.length ?? 0) > 0 ? (
+          <View style={{ gap: 14 }}>
+            {data.doctorVoiceNotes!.map((vn) => (
+              <View
+                key={vn.id}
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: "#bae6fd",
+                  backgroundColor: "rgba(224, 242, 254, 0.5)",
+                  padding: 12,
+                }}
+              >
+                <Text style={{ fontSize: 12, color: "#0369a1", marginBottom: 8 }}>
+                  {format(parseISO(vn.createdAt), "dd/MM/yy · h:mm a")}
+                </Text>
+                <DoctorVoiceNotePlayer uri={vn.audioDataUri} />
+                <Pressable
+                  style={styles.stepRow}
+                  disabled={voiceBusyId === vn.id}
+                  onPress={() =>
+                    void patchVoiceNote(vn.id, { listened: !vn.listened })
+                  }
+                >
+                  <View
+                    style={[
+                      styles.checkbox,
+                      vn.listened ? { backgroundColor: TEAL, borderColor: TEAL } : null,
+                    ]}
+                  />
+                  <Text style={styles.stepLabel}>I listened</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.btnGhost,
+                    { marginTop: 8, opacity: vn.listened && voiceBusyId !== vn.id ? 1 : 0.45 },
+                  ]}
+                  disabled={!vn.listened || voiceBusyId === vn.id}
+                  onPress={() => void patchVoiceNote(vn.id, { archived: true })}
+                >
+                  <Text style={styles.btnGhostText}>Archive</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
         ) : data.onboardingComplete === false ? (
           <Text style={styles.voicePlaceholder}>
             Your doctor will send a voice note after reviewing your baseline. The bell will
             update when it arrives.
           </Text>
         ) : null}
+        {(data.doctorArchivedVoiceNotes?.length ?? 0) > 0 ? (
+          <View style={{ marginTop: 12 }}>
+            <Pressable onPress={() => setShowArchivedVoices((v) => !v)}>
+              <Text style={styles.editLink}>
+                {showArchivedVoices ? "Hide" : "Show"} archived voice notes (
+                {data.doctorArchivedVoiceNotes!.length})
+              </Text>
+            </Pressable>
+            {showArchivedVoices
+              ? data.doctorArchivedVoiceNotes!.map((vn) => (
+                  <View
+                    key={vn.id}
+                    style={{
+                      marginTop: 10,
+                      padding: 10,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: "#e4e4e7",
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={styles.muted}>
+                      {format(parseISO(vn.createdAt), "dd/MM/yy")}
+                    </Text>
+                    <DoctorVoiceNotePlayer uri={vn.audioDataUri} />
+                  </View>
+                ))
+              : null}
+          </View>
+        ) : null}
         {data.doctorFeedback?.trim() ? (
           <Text style={styles.feedback}>{data.doctorFeedback}</Text>
-        ) : !data.doctorVoiceNote ? (
+        ) : (data.doctorVoiceNotes?.length ?? 0) === 0 ? (
           <View style={styles.feedbackEmpty} />
         ) : null}
         <Text style={[styles.label, { marginTop: 12 }]}>Reply to your doctor</Text>
@@ -631,8 +739,10 @@ export default function DashboardScreen() {
 
 function DayQuestBannerMobile({
   routineProgress,
+  questSubtext,
 }: {
   routineProgress: number;
+  questSubtext?: string | null;
 }) {
   const cd = useEndOfDayCountdown();
   const p = Math.min(1, Math.max(0, routineProgress));
@@ -650,7 +760,9 @@ function DayQuestBannerMobile({
     >
       <Text style={styles.questKicker}>{"Today's quest"}</Text>
       <Text style={styles.questTitle}>
-        Lock in routine &amp; journal before the day resets
+        {questSubtext?.trim()
+          ? questSubtext.trim()
+          : "Lock in routine & journal before the day resets"}
       </Text>
       <Text style={styles.questSub}>
         Counts until <Text style={styles.questBold}>11:59:59 PM</Text> local time
@@ -734,7 +846,7 @@ function DoctorVoiceNotePlayer({
   onPlayStart,
 }: {
   uri: string;
-  onPlayStart: () => Promise<void>;
+  onPlayStart?: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   return (
@@ -744,7 +856,7 @@ function DoctorVoiceNotePlayer({
       onPress={async () => {
         setBusy(true);
         try {
-          await onPlayStart();
+          await onPlayStart?.();
           await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
           const { sound } = await Audio.Sound.createAsync({ uri });
           await sound.playAsync();
@@ -809,20 +921,6 @@ const styles = StyleSheet.create({
   gauge: { alignItems: "center" },
   gaugeVal: { fontSize: 22, fontWeight: "700", color: "#18181b" },
   gaugeLbl: { fontSize: 11, color: "#52525b", marginTop: 4, textAlign: "center", maxWidth: 100 },
-  focusBanner: {
-    marginTop: 14,
-    backgroundColor: "#ecfeff",
-    borderWidth: 1,
-    borderColor: "rgba(13,148,136,0.25)",
-  },
-  focusKicker: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 2,
-    color: "#0f766e",
-    marginBottom: 6,
-  },
-  focusMessage: { fontSize: 15, lineHeight: 22, color: "#134e4a", fontWeight: "600" },
   streakRow: { marginTop: 10, alignItems: "center" },
   streakText: { fontSize: 13, color: "#52525b", fontWeight: "600" },
   streakNum: { color: TEAL, fontWeight: "800" },
@@ -848,6 +946,18 @@ const styles = StyleSheet.create({
   voiceBtnText: { fontSize: 14, fontWeight: "700", color: "#0369a1" },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   routineRow: { flexDirection: "row", marginTop: 12, gap: 16 },
+  routinePending: {
+    marginTop: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#3f3f46",
+    fontWeight: "600",
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e4e4e7",
+    backgroundColor: "#fafafa",
+  },
   routineCol: { flex: 1 },
   stepRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   checkbox: {
@@ -892,6 +1002,16 @@ const styles = StyleSheet.create({
   journalActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
   btn: { backgroundColor: TEAL, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12 },
   btnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  btnGhost: {
+    alignSelf: "flex-start",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#d4d4d8",
+    backgroundColor: "#fff",
+  },
+  btnGhostText: { color: "#3f3f46", fontWeight: "700", fontSize: 13 },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 8,

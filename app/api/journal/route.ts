@@ -1,19 +1,35 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "@/src/db";
-import { dailyLogs } from "@/src/db/schema";
+import { dailyLogs, users } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
-import {
-  AM_ROUTINE_LEN,
-  normalizeRoutineSteps,
-  PM_ROUTINE_LEN,
-} from "@/src/lib/routine";
+import { coerceRoutinePlanList, normalizeRoutineSteps } from "@/src/lib/routine";
 import { refreshUserStreakAfterRoutineDay } from "@/src/lib/userStreak";
 import {
   localCalendarYmd,
   parseYmdToDateOnly,
   ymdFromDateOnly,
 } from "@/src/lib/date-only";
+
+async function routineLensForUser(
+  userId: string
+): Promise<{ amLen: number; pmLen: number }> {
+  const [r] = await db
+    .select({
+      am: users.routinePlanAmItems,
+      pm: users.routinePlanPmItems,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!r) {
+    return { amLen: 0, pmLen: 0 };
+  }
+  return {
+    amLen: coerceRoutinePlanList(r.am).length,
+    pmLen: coerceRoutinePlanList(r.pm).length,
+  };
+}
 
 export async function GET(req: Request) {
   const userId = await getSessionUserIdFromRequest(req);
@@ -42,10 +58,19 @@ export async function GET(req: Request) {
       .orderBy(desc(dailyLogs.date))
       .limit(1);
 
+    const lens = await routineLensForUser(userId);
     if (!row) {
-      return NextResponse.json({ entry: null });
+      return NextResponse.json({
+        entry: null,
+        routineAmLen: lens.amLen,
+        routinePmLen: lens.pmLen,
+      });
     }
-    return NextResponse.json({ entry: serializeLog(row) });
+    return NextResponse.json({
+      entry: serializeLog(row),
+      routineAmLen: lens.amLen,
+      routinePmLen: lens.pmLen,
+    });
   }
 
   const ymd = dateParam ?? localCalendarYmd();
@@ -63,7 +88,12 @@ export async function GET(req: Request) {
     .where(and(eq(dailyLogs.userId, userId), eq(dailyLogs.date, d)))
     .limit(1);
 
-  return NextResponse.json({ entry: row ? serializeLog(row) : null });
+  const lens = await routineLensForUser(userId);
+  return NextResponse.json({
+    entry: row ? serializeLog(row) : null,
+    routineAmLen: lens.amLen,
+    routinePmLen: lens.pmLen,
+  });
 }
 
 type LogRow = typeof dailyLogs.$inferSelect;
@@ -134,6 +164,8 @@ export async function POST(req: Request) {
     .where(and(eq(dailyLogs.userId, userId), eq(dailyLogs.date, d)))
     .limit(1);
 
+  const { amLen, pmLen } = await routineLensForUser(userId);
+
   const sleepHours = clampInt(body.sleepHours, 0, 24, 0);
   const stressLevel = clampInt(body.stressLevel, 0, 10, 5);
   const waterGlasses = clampInt(body.waterGlasses, 0, 40, 0);
@@ -146,12 +178,12 @@ export async function POST(req: Request) {
 
   const routineAmSteps = normalizeRoutineSteps(
     body.routineAmSteps,
-    AM_ROUTINE_LEN,
+    amLen,
     existing?.routineAmSteps ?? undefined
   );
   const routinePmSteps = normalizeRoutineSteps(
     body.routinePmSteps,
-    PM_ROUTINE_LEN,
+    pmLen,
     existing?.routinePmSteps ?? undefined
   );
   const amRoutine = routineAmSteps.some(Boolean);
@@ -215,8 +247,8 @@ export async function POST(req: Request) {
       d,
       routineAmSteps,
       routinePmSteps,
-      AM_ROUTINE_LEN,
-      PM_ROUTINE_LEN
+      amLen,
+      pmLen
     );
   }
 
@@ -260,14 +292,16 @@ export async function PATCH(req: Request) {
     );
   }
 
+  const { amLen, pmLen } = await routineLensForUser(userId);
+
   const amSteps = normalizeRoutineSteps(
     body.routineAmSteps,
-    AM_ROUTINE_LEN,
+    amLen,
     undefined
   );
   const pmSteps = normalizeRoutineSteps(
     body.routinePmSteps,
-    PM_ROUTINE_LEN,
+    pmLen,
     undefined
   );
 
@@ -295,8 +329,8 @@ export async function PATCH(req: Request) {
         d,
         amSteps,
         pmSteps,
-        AM_ROUTINE_LEN,
-        PM_ROUTINE_LEN
+        amLen,
+        pmLen
       );
     }
     return NextResponse.json({
@@ -329,8 +363,8 @@ export async function PATCH(req: Request) {
       d,
       amSteps,
       pmSteps,
-      AM_ROUTINE_LEN,
-      PM_ROUTINE_LEN
+      amLen,
+      pmLen
     );
   }
 

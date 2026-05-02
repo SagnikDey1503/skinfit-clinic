@@ -4,9 +4,8 @@ import { dailyLogs, users } from "@/src/db/schema";
 import { sendClinicSupportMessage } from "@/src/lib/clinicSupportChat";
 import { dateOnlyFromYmd } from "@/src/lib/date-only";
 import {
-  AM_ROUTINE_ITEMS,
+  coerceRoutinePlanList,
   normalizeRoutineSteps,
-  PM_ROUTINE_ITEMS,
 } from "@/src/lib/routine";
 import {
   buildRoutineReminderMessage,
@@ -42,6 +41,8 @@ export async function runRoutineReminders(): Promise<{
       routinePmReminderHm: users.routinePmReminderHm,
       routineAmReminderLastSentYmd: users.routineAmReminderLastSentYmd,
       routinePmReminderLastSentYmd: users.routinePmReminderLastSentYmd,
+      routinePlanAmItems: users.routinePlanAmItems,
+      routinePlanPmItems: users.routinePlanPmItems,
     })
     .from(users)
     .where(
@@ -54,6 +55,10 @@ export async function runRoutineReminders(): Promise<{
 
   for (const row of rows) {
     if (!row.routineRemindersEnabled) continue;
+
+    const amItems = coerceRoutinePlanList(row.routinePlanAmItems);
+    const pmItems = coerceRoutinePlanList(row.routinePlanPmItems);
+    if (amItems.length === 0 || pmItems.length === 0) continue;
 
     const tz = normalizeIanaTimeZone(row.timezone);
     const { ymd, hm } = localYmdAndHm(now, tz);
@@ -70,17 +75,17 @@ export async function runRoutineReminders(): Promise<{
 
     const amSteps = normalizeRoutineSteps(
       log?.routineAmSteps,
-      AM_ROUTINE_ITEMS.length,
+      amItems.length,
       undefined
     );
     const pmSteps = normalizeRoutineSteps(
       log?.routinePmSteps,
-      PM_ROUTINE_ITEMS.length,
+      pmItems.length,
       undefined
     );
 
-    const amLeft = remainingLabels(AM_ROUTINE_ITEMS, amSteps);
-    const pmLeft = remainingLabels(PM_ROUTINE_ITEMS, pmSteps);
+    const amLeft = remainingLabels(amItems, amSteps);
+    const pmLeft = remainingLabels(pmItems, pmSteps);
 
     for (const kind of ["am", "pm"] as const) {
       const targetHm =

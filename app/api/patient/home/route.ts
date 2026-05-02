@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, gte } from "drizzle-orm";
 import { subDays } from "date-fns";
 import { db } from "@/src/db";
-import { dailyFocus, dailyLogs, scans, skinScans, users } from "@/src/db/schema";
+import { dailyLogs, scans, skinScans, users } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
 import { dateOnlyFromYmd, parseYmdToDateOnly } from "@/src/lib/date-only";
 import { getPatientDoctorSection } from "@/src/lib/patientDoctorSection";
-import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "@/src/lib/routine";
+import { patientRoutineListsForApi } from "@/src/lib/routine";
 import { localYmdAndHm, normalizeIanaTimeZone } from "@/src/lib/timeZoneWallClock";
 
 function clampPct(n: number) {
@@ -30,11 +30,17 @@ export async function GET(request: Request) {
       cycleTrackingEnabled: true,
       onboardingComplete: true,
       timezone: true,
+      routinePlanAmItems: true,
+      routinePlanPmItems: true,
+      routinePlanClinicianLocked: true,
     },
   });
   if (!userRow) {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
+
+  const routinePlanAmItems = userRow.routinePlanAmItems;
+  const routinePlanPmItems = userRow.routinePlanPmItems;
 
   const tz = normalizeIanaTimeZone(userRow.timezone);
   const todayYmdFromProfile =
@@ -49,7 +55,6 @@ export async function GET(request: Request) {
     todayLog,
     lastScans,
     recentLogs,
-    focusRow,
     doctorSection,
   ] = await Promise.all([
     db.query.skinScans.findMany({
@@ -83,12 +88,6 @@ export async function GET(request: Request) {
       .where(
         and(eq(dailyLogs.userId, userId), gte(dailyLogs.date, weekCut))
       ),
-    db.query.dailyFocus.findFirst({
-      where: and(
-        eq(dailyFocus.userId, userId),
-        eq(dailyFocus.focusDate, todayDateOnly)
-      ),
-    }),
     getPatientDoctorSection(userId),
   ]);
 
@@ -130,11 +129,13 @@ export async function GET(request: Request) {
   let sleepSum = 0;
   let waterSum = 0;
   let highSun = 0;
-  const amLen = AM_ROUTINE_ITEMS.length;
-  const pmLen = PM_ROUTINE_ITEMS.length;
   for (const l of recentLogs) {
-    const am = (l.routineAmSteps ?? []).filter(Boolean).length >= amLen;
-    const pm = (l.routinePmSteps ?? []).filter(Boolean).length >= pmLen;
+    const amS = l.routineAmSteps ?? [];
+    const pmS = l.routinePmSteps ?? [];
+    const am =
+      amS.length > 0 && amS.length === amS.filter(Boolean).length;
+    const pm =
+      pmS.length > 0 && pmS.length === pmS.filter(Boolean).length;
     if (am && pm) amPmDays += 1;
     sleepSum += l.sleepHours ?? 0;
     waterSum += l.waterGlasses ?? 0;
@@ -154,35 +155,26 @@ export async function GET(request: Request) {
   );
 
   const onboardingComplete = userRow.onboardingComplete;
-  const todayFocus = !onboardingComplete
-    ? {
-        phase: "onboarding" as const,
-        message: null as string | null,
-        sourceParam: null as string | null,
-      }
-    : focusRow
-      ? {
-          phase: "active" as const,
-          message: focusRow.message,
-          sourceParam: focusRow.sourceParam,
-        }
-      : {
-          phase: "awaiting_clinician" as const,
-          message: null as string | null,
-          sourceParam: null as string | null,
-        };
 
   const {
     doctorFeedback,
-    doctorVoiceNote,
+    doctorVoiceNotes,
+    doctorArchivedVoiceNotes,
     doctorVoiceNoteIsNew,
   } = doctorSection;
+
+  const { amItems, pmItems, routinePlanReady } = patientRoutineListsForApi({
+    routinePlanAmItems,
+    routinePlanPmItems,
+    onboardingComplete,
+  });
 
   return NextResponse.json({
     skinScanHistory,
     todayLog: todayLogOut,
-    amItems: [...AM_ROUTINE_ITEMS],
-    pmItems: [...PM_ROUTINE_ITEMS],
+    amItems,
+    pmItems,
+    routinePlanReady,
     kaiSkinScore: clampPct(kaiSkinScore),
     weeklyDeltaScore: Math.round(weeklyDeltaScore),
     lifestyleAlignmentScore,
@@ -191,10 +183,12 @@ export async function GET(request: Request) {
     /** @deprecated use weeklyDeltaScore */
     weeklyChangePercent: Math.round(weeklyDeltaScore),
     doctorFeedback,
-    doctorVoiceNote,
+    doctorVoiceNotes,
+    doctorArchivedVoiceNotes,
+    /** @deprecated first active note only — use doctorVoiceNotes */
+    doctorVoiceNote: doctorVoiceNotes[0] ?? null,
     doctorVoiceNoteIsNew,
-    todayFocus,
-    /** Calendar date used for today’s log + focus (patient profile timezone when `date` query omitted). */
+    /** Calendar date used for today’s log (patient profile timezone when `date` query omitted). */
     homeDateYmd: todayYmdFromProfile,
     streakCurrent: userRow.streakCurrent ?? 0,
     streakLongest: userRow.streakLongest ?? 0,

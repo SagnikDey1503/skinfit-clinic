@@ -20,9 +20,12 @@ function useClientMounted() {
 /** Hero gamification: AM/PM routine completion ring + time until 11:59:59 PM. */
 export function DashboardDayQuestBanner({
   routineProgress,
+  questSubtext,
 }: {
   /** 0–1: completed AM/PM steps over total steps. */
   routineProgress: number;
+  /** When set, replaces the default subtitle (e.g. waiting on clinician routine plan). */
+  questSubtext?: string | null;
 }) {
   const mounted = useClientMounted();
   const cd = useEndOfDayCountdown();
@@ -116,7 +119,9 @@ export function DashboardDayQuestBanner({
               Today&apos;s quest
             </p>
             <p className="mt-1 text-sm font-semibold leading-snug text-zinc-950">
-              Lock in your dashboard before the day resets
+              {questSubtext?.trim()
+                ? questSubtext.trim()
+                : "Lock in your dashboard before the day resets"}
             </p>
           </div>
         </div>

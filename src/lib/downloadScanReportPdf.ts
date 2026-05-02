@@ -11,6 +11,28 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+function isPatientScanImageApiSrc(raw: string): boolean {
+  try {
+    const u = new URL(raw, window.location.origin);
+    return /\/api\/patient\/scans\/\d+\/image$/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** Full-resolution URL for PDF (strip `preview=1` used for on-screen display). */
+function fullResolutionPatientScanImageSrc(raw: string): string {
+  try {
+    const u = new URL(raw, window.location.origin);
+    if (!/\/api\/patient\/scans\/\d+\/image$/.test(u.pathname)) return raw;
+    u.searchParams.delete("preview");
+    const q = u.searchParams.toString();
+    return q ? `${u.pathname}?${q}` : u.pathname;
+  } catch {
+    return raw;
+  }
+}
+
 /** html2canvas often misses cookie-authenticated same-origin `/api/.../image` URLs — inline as data URLs first. */
 async function inlinePatientScanFaceForPdf(root: HTMLElement): Promise<
   Array<{ img: HTMLImageElement; previousSrc: string; hadCrossOrigin: boolean }>
@@ -23,10 +45,11 @@ async function inlinePatientScanFaceForPdf(root: HTMLElement): Promise<
   const imgs = Array.from(root.querySelectorAll("img"));
   for (const img of imgs) {
     const raw = (img.getAttribute("src") || "").trim();
-    if (!raw.includes("/api/patient/scans/") || !raw.endsWith("/image")) {
+    if (!isPatientScanImageApiSrc(raw)) {
       continue;
     }
-    const abs = new URL(raw, window.location.origin).href;
+    const abs = new URL(fullResolutionPatientScanImageSrc(raw), window.location.origin)
+      .href;
     try {
       const res = await fetch(abs, { credentials: "include", cache: "force-cache" });
       if (!res.ok) continue;

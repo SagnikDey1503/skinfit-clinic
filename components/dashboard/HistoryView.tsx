@@ -1,12 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { User, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Check,
+  ChevronRight,
+  FileText,
+  Mic,
+  Trash2,
+  User,
+} from "lucide-react";
 import { format } from "date-fns";
 import { dateOnlyFromYmd } from "@/src/lib/date-only";
 import { useRouter } from "next/navigation";
+import { CLINIC_SUPPORT_INBOX_REFRESH_EVENT } from "@/src/lib/clinicSupportInboxClient";
 
 const CARD =
   "rounded-[22px] border border-zinc-100 bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6";
@@ -27,12 +36,19 @@ export interface ScanRecord {
   aiSummary: string | null;
 }
 
+export type VisitNoteAttachment = {
+  fileName: string;
+  mimeType: string;
+  dataUri: string;
+};
+
 export interface VisitNoteRecord {
   id: string;
   /** `YYYY-MM-DD` from `visit_notes.visit_date`. */
   visitDateYmd: string;
   doctorName: string;
   notes: string;
+  attachments?: VisitNoteAttachment[] | null;
 }
 
 /** Voice note attached to a specific scan (report) — shown on treatment history, not the dashboard card. */
@@ -42,6 +58,7 @@ export interface ReportVoiceNoteRecord {
   scanLabel: string;
   audioDataUri: string;
   createdAt: Date | string;
+  listened: boolean;
 }
 
 export interface PatientInfo {
@@ -57,13 +74,144 @@ interface HistoryViewProps {
   scans: ScanRecord[];
   visitNotes: VisitNoteRecord[];
   reportVoiceNotes: ReportVoiceNoteRecord[];
+  reportVoiceNotesArchived?: ReportVoiceNoteRecord[];
   patient: PatientInfo;
+}
+
+function HistoryReportVoiceCard({ vn }: { vn: ReportVoiceNoteRecord }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const patch = useCallback(
+    async (body: { listened?: boolean; archived?: boolean }) => {
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/patient/voice-notes/${vn.id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          window.dispatchEvent(
+            new Event(CLINIC_SUPPORT_INBOX_REFRESH_EVENT)
+          );
+          router.refresh();
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [router, vn.id]
+  );
+
+  return (
+    <div className="overflow-hidden rounded-2xl bg-gradient-to-b from-[#FFFCF7] to-[#f3f2ef] shadow-[0_2px_14px_-3px_rgba(15,23,42,0.07)]">
+      <div className="flex items-start justify-between gap-3 border-b border-stone-200/40 px-4 pb-3 pt-4 sm:px-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-100/90 text-teal-800 shadow-sm">
+            <Mic className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 pt-0.5">
+            <p className="text-[15px] font-semibold leading-snug text-zinc-900">
+              {vn.scanLabel}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-500">Doctor voice note</p>
+          </div>
+        </div>
+        <time
+          dateTime={new Date(vn.createdAt).toISOString()}
+          className="shrink-0 rounded-full bg-white/95 px-2.5 py-1 text-xs font-medium tabular-nums text-zinc-600 shadow-[inset_0_0_0_1px_rgba(120,113,108,0.12)]"
+        >
+          {format(new Date(vn.createdAt), "MMM d, yyyy")}
+        </time>
+      </div>
+
+      <div className="px-4 py-4 sm:px-5">
+        <div className="rounded-xl bg-stone-200/30 px-3 py-2.5">
+          <audio
+            controls
+            preload="metadata"
+            className="h-9 w-full max-h-9 min-h-[2.25rem] [&::-webkit-media-controls-panel]:rounded-lg"
+            style={{ accentColor: "#0f766e" }}
+            src={vn.audioDataUri}
+          >
+            Your browser does not support audio.
+          </audio>
+        </div>
+      </div>
+
+      <div className="bg-[#f7f6f3]/85 px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <label
+              className={`inline-flex min-h-[44px] max-w-full cursor-pointer items-center gap-3 rounded-xl border border-solid px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors ${
+                vn.listened
+                  ? "border-teal-200/70 bg-teal-50/80"
+                  : "border-stone-200/55 bg-white hover:border-stone-300/80"
+              } ${busy ? "pointer-events-none opacity-60" : ""}`}
+            >
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={vn.listened}
+                disabled={busy}
+                onChange={(e) => void patch({ listened: e.target.checked })}
+              />
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 border-solid transition-colors ${
+                  vn.listened
+                    ? "border-teal-600 bg-teal-600"
+                    : "border-stone-300 bg-white peer-focus-visible:ring-2 peer-focus-visible:ring-teal-500/30"
+                }`}
+              >
+                <Check
+                  className={`h-3.5 w-3.5 stroke-[2.5] text-white ${vn.listened ? "opacity-100" : "opacity-0"}`}
+                  aria-hidden
+                />
+              </span>
+              <span className="text-sm font-medium text-zinc-800">
+                I listened
+              </span>
+            </label>
+
+            <button
+              type="button"
+              disabled={busy || !vn.listened}
+              onClick={() => void patch({ archived: true })}
+              title={
+                vn.listened
+                  ? "Move to archived (still playable)"
+                  : "Mark as listened first"
+              }
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-solid border-stone-200/60 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-600 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-stone-300/90 hover:bg-stone-50/80 hover:text-zinc-900 disabled:cursor-not-allowed disabled:border-stone-200/40 disabled:bg-stone-100/40 disabled:text-zinc-400 disabled:shadow-none"
+            >
+              <Archive className="h-4 w-4 opacity-70" aria-hidden />
+              Archive
+            </button>
+          </div>
+
+          <Link
+            href={`/dashboard/history/scans/${vn.scanId}`}
+            className="group inline-flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(15,23,42,0.12)] transition hover:bg-teal-700 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 sm:w-auto sm:min-w-[148px]"
+          >
+            <FileText className="h-4 w-4 shrink-0 opacity-95" aria-hidden />
+            Show report
+            <ChevronRight
+              className="h-4 w-4 shrink-0 opacity-90 transition group-hover:translate-x-0.5"
+              aria-hidden
+            />
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function HistoryView({
   scans,
   visitNotes,
   reportVoiceNotes,
+  reportVoiceNotesArchived = [],
   patient,
 }: HistoryViewProps) {
   const router = useRouter();
@@ -287,42 +435,61 @@ export function HistoryView({
         <div className="space-y-8">
           <div>
             <h3 className="mb-4 text-lg font-bold text-zinc-900">Audio notes</h3>
-            <div className="space-y-4">
+            <div className="space-y-5">
               {reportVoiceNotes.length > 0 ? (
                 reportVoiceNotes.map((vn) => (
-                  <div
-                    key={vn.id}
-                    className="rounded-[18px] border border-zinc-100 bg-[#FDF9F0]/80 p-4"
-                  >
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-zinc-900">
-                        {vn.scanLabel}
-                      </span>
-                      <span className="text-xs text-zinc-500">
-                        {format(new Date(vn.createdAt), "MMM d, yyyy")}
-                      </span>
-                    </div>
-                    <audio
-                      controls
-                      preload="metadata"
-                      className="h-9 w-full max-w-md"
-                      src={vn.audioDataUri}
-                    >
-                      Your browser does not support audio.
-                    </audio>
-                    <Link
-                      href={`/dashboard/history/scans/${vn.scanId}`}
-                      className="mt-3 inline-block text-sm font-medium text-teal-600 hover:text-teal-700"
-                    >
-                      Open report
-                    </Link>
-                  </div>
+                  <HistoryReportVoiceCard key={vn.id} vn={vn} />
                 ))
               ) : (
                 <p className="py-4 text-center text-sm text-zinc-600">
                   No audio notes for your reports yet.
                 </p>
               )}
+              {reportVoiceNotesArchived.length > 0 ? (
+                <details className="group mt-6 overflow-hidden rounded-2xl bg-stone-100/50 shadow-[0_1px_3px_rgba(15,23,42,0.05),inset_0_0_0_1px_rgba(120,113,108,0.1)]">
+                  <summary className="cursor-pointer list-none px-4 py-3.5 text-sm font-semibold text-zinc-800 transition hover:bg-stone-200/30 [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2">
+                        <Archive className="h-4 w-4 text-zinc-500" aria-hidden />
+                        Archived report audio
+                        <span className="rounded-full bg-zinc-200/80 px-2 py-0.5 text-xs font-bold tabular-nums text-zinc-700">
+                          {reportVoiceNotesArchived.length}
+                        </span>
+                      </span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-zinc-400 transition group-open:rotate-90" />
+                    </span>
+                  </summary>
+                  <p className="border-t border-stone-200/35 px-4 pb-3 pt-2 text-xs leading-relaxed text-zinc-600">
+                    Still here if you need them — nothing is deleted.
+                  </p>
+                  <div className="space-y-3 border-t border-stone-200/35 bg-white/40 px-4 py-4">
+                    {reportVoiceNotesArchived.map((vn) => (
+                      <div
+                        key={vn.id}
+                        className="rounded-xl bg-white/90 p-3 shadow-[0_1px_3px_rgba(15,23,42,0.04)]"
+                      >
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-zinc-800">
+                            {vn.scanLabel}
+                          </span>
+                          <span className="text-xs font-medium text-zinc-500">
+                            {format(new Date(vn.createdAt), "MMM d, yyyy")}
+                          </span>
+                        </div>
+                        <div className="rounded-lg bg-stone-200/35 px-2.5 py-2">
+                          <audio
+                            controls
+                            preload="metadata"
+                            className="h-8 w-full"
+                            style={{ accentColor: "#0f766e" }}
+                            src={vn.audioDataUri}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
             </div>
           </div>
 
@@ -353,6 +520,29 @@ export function HistoryView({
                       <p className="text-sm leading-relaxed text-zinc-700">
                         {visit.notes}
                       </p>
+                      {visit.attachments && visit.attachments.length > 0 ? (
+                        <div className="mt-3 border-t border-zinc-100 pt-3">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Documents
+                          </p>
+                          <ul className="space-y-1.5">
+                            {visit.attachments.map((att, idx) => (
+                              <li key={`${visit.id}-att-${idx}`}>
+                                <a
+                                  href={att.dataUri}
+                                  download={att.fileName}
+                                  className="text-sm font-medium text-teal-700 underline decoration-teal-600/40 underline-offset-2 hover:text-teal-800"
+                                >
+                                  {att.fileName}
+                                </a>
+                                <span className="ml-2 text-xs text-zinc-500">
+                                  ({att.mimeType})
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))

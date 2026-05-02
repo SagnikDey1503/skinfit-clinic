@@ -10,6 +10,7 @@ import {
   boolean,
   date,
   pgEnum,
+  index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -113,6 +114,19 @@ export const users = pgTable("users", {
   /** kAI onboarding: false until questionnaire + baseline scan complete. Existing users default true. */
   onboardingComplete: boolean("onboarding_complete").notNull().default(true),
   onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
+  /**
+   * AM/PM routine step labels — set by clinic after onboarding. Null until configured;
+   * patients see an empty checklist until both sides have at least one step.
+   */
+  routinePlanAmItems: jsonb("routine_plan_am_items").$type<string[] | null>(),
+  routinePlanPmItems: jsonb("routine_plan_pm_items").$type<string[] | null>(),
+  /**
+   * When false, cron reapplies `AM_ROUTINE_ITEMS` / `PM_ROUTINE_ITEMS` from code so the
+   * checklist stays current until a clinician saves a personal plan.
+   */
+  routinePlanClinicianLocked: boolean("routine_plan_clinician_locked")
+    .notNull()
+    .default(false),
   primaryConcern: varchar("primary_concern", { length: 64 }),
   concernSeverity: varchar("concern_severity", { length: 32 }),
   concernDuration: varchar("concern_duration", { length: 32 }),
@@ -134,6 +148,11 @@ export const users = pgTable("users", {
   doctorFeedbackViewedAt: timestamp("doctor_feedback_viewed_at", {
     withTimezone: true,
   }),
+  /** When patient last acknowledged scan/report voice notes (inbox + history). */
+  doctorFeedbackScanVoiceViewedAt: timestamp(
+    "doctor_feedback_scan_voice_viewed_at",
+    { withTimezone: true }
+  ),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -147,7 +166,7 @@ export const scans = pgTable("scans", {
   imageUrl: text("image_url").notNull(),
   /** Ordered face captures (labels + data URIs); null for legacy single-image scans */
   faceCaptureImages: jsonb("face_capture_images").$type<
-    Array<{ label: string; dataUri: string }>
+    Array<{ label: string; dataUri: string; previewDataUri?: string }>
   >(),
   overallScore: integer("overall_score").notNull(),
   acne: integer("acne").notNull(),
@@ -337,6 +356,10 @@ export const visitNotes = pgTable("visit_notes", {
   responseRating: visitResponseRatingEnum("response_rating"),
   beforeImageIds: jsonb("before_image_ids").$type<string[]>(),
   afterImageIds: jsonb("after_image_ids").$type<string[]>(),
+  /** Optional clinician uploads (data URIs), max few MB total — see API limits. */
+  attachments: jsonb("attachments").$type<
+    Array<{ fileName: string; mimeType: string; dataUri: string }>
+  >(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -483,6 +506,30 @@ export const chatMessages = pgTable("chat_messages", {
     .defaultNow(),
 });
 
+/** Staff marked “seen” for a specific urgent SOS chat row (per-doctor, per-message). */
+export const doctorSosAcknowledgements = pgTable(
+  "doctor_sos_acknowledgements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    staffUserId: uuid("staff_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    chatMessageId: uuid("chat_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    staffMessageUidx: uniqueIndex("doctor_sos_ack_staff_message_uidx").on(
+      table.staffUserId,
+      table.chatMessageId
+    ),
+    staffIdx: index("doctor_sos_ack_staff_idx").on(table.staffUserId),
+  })
+);
+
 /** Questionnaire step answers (audit trail). */
 export const questionnaireAnswers = pgTable("questionnaire_answers", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -586,6 +633,10 @@ export const doctorFeedbackVoiceNotes = pgTable("doctor_feedback_voice_notes", {
   scanId: integer("scan_id").references(() => scans.id, { onDelete: "set null" }),
   audioDataUri: text("audio_data_uri").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Patient marked as listened (separate from inbox; drives badge + archive). */
+  patientListenedAt: timestamp("patient_listened_at", { withTimezone: true }),
+  /** Patient archived — hidden from main lists; audio retained in DB. */
+  patientArchivedAt: timestamp("patient_archived_at", { withTimezone: true }),
 });
 
 export const monthlyReports = pgTable("monthly_reports", {

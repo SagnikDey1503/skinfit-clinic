@@ -4,9 +4,8 @@ import { dailyLogs, users } from "@/src/db/schema";
 import { sendClinicSupportMessage } from "@/src/lib/clinicSupportChat";
 import { dateOnlyFromYmd } from "@/src/lib/date-only";
 import {
-  AM_ROUTINE_ITEMS,
+  coerceRoutinePlanList,
   normalizeRoutineSteps,
-  PM_ROUTINE_ITEMS,
 } from "@/src/lib/routine";
 import {
   buildRoutineReminderMessage,
@@ -28,13 +27,25 @@ export async function sendDoctorRoutineNudge(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const userRow = await db.query.users.findFirst({
     where: and(eq(users.id, patientId), eq(users.role, "patient")),
-    columns: { id: true, onboardingComplete: true, timezone: true },
+    columns: {
+      id: true,
+      onboardingComplete: true,
+      timezone: true,
+      routinePlanAmItems: true,
+      routinePlanPmItems: true,
+    },
   });
   if (!userRow) {
     return { ok: false, error: "NOT_FOUND" };
   }
   if (!userRow.onboardingComplete) {
     return { ok: false, error: "PATIENT_NOT_ONBOARDED" };
+  }
+
+  const amItems = coerceRoutinePlanList(userRow.routinePlanAmItems);
+  const pmItems = coerceRoutinePlanList(userRow.routinePlanPmItems);
+  if (amItems.length === 0 || pmItems.length === 0) {
+    return { ok: false, error: "ROUTINE_PLAN_NOT_SET" };
   }
 
   const tz = normalizeIanaTimeZone(userRow.timezone);
@@ -52,17 +63,17 @@ export async function sendDoctorRoutineNudge(
 
   const amSteps = normalizeRoutineSteps(
     log?.routineAmSteps,
-    AM_ROUTINE_ITEMS.length,
+    amItems.length,
     undefined
   );
   const pmSteps = normalizeRoutineSteps(
     log?.routinePmSteps,
-    PM_ROUTINE_ITEMS.length,
+    pmItems.length,
     undefined
   );
 
-  const amLeft = remainingLabels(AM_ROUTINE_ITEMS, amSteps);
-  const pmLeft = remainingLabels(PM_ROUTINE_ITEMS, pmSteps);
+  const amLeft = remainingLabels(amItems, amSteps);
+  const pmLeft = remainingLabels(pmItems, pmSteps);
   const left = kind === "am" ? amLeft : pmLeft;
 
   if (left.length === 0) {

@@ -6,7 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { DashboardView } from "../../components/dashboard/DashboardView";
 import { getSessionUserId } from "../../src/lib/auth/get-session";
 import { getPatientDoctorSection } from "../../src/lib/patientDoctorSection";
-import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "../../src/lib/routine";
+import { patientRoutineListsForApi } from "../../src/lib/routine";
 import { dateOnlyFromYmd } from "../../src/lib/date-only";
 import { localYmdAndHm, normalizeIanaTimeZone } from "../../src/lib/timeZoneWallClock";
 export default async function DashboardPage() {
@@ -22,6 +22,9 @@ export default async function DashboardPage() {
   if (!user) {
     redirect("/login");
   }
+
+  const routinePlanAmItems = user.routinePlanAmItems;
+  const routinePlanPmItems = user.routinePlanPmItems;
 
   const { ymd: todayYmd } = localYmdAndHm(
     new Date(),
@@ -55,8 +58,11 @@ export default async function DashboardPage() {
     analysisResults: r.analysisResults,
   }));
 
-  const amItems = [...AM_ROUTINE_ITEMS];
-  const pmItems = [...PM_ROUTINE_ITEMS];
+  const { amItems, pmItems, routinePlanReady } = patientRoutineListsForApi({
+    routinePlanAmItems,
+    routinePlanPmItems,
+    onboardingComplete: user.onboardingComplete,
+  });
 
   const routineScore = 80;
   const weeklyChangePercent = 5;
@@ -70,9 +76,11 @@ export default async function DashboardPage() {
       routineScore={routineScore}
       weeklyChangePercent={weeklyChangePercent}
       doctorFeedback={doctorSection.doctorFeedback}
-      doctorVoiceNote={doctorSection.doctorVoiceNote}
+      doctorVoiceNotes={doctorSection.doctorVoiceNotes}
+      doctorArchivedVoiceNotes={doctorSection.doctorArchivedVoiceNotes}
       doctorVoiceNoteIsNew={doctorSection.doctorVoiceNoteIsNew}
       onboardingComplete={doctorSection.onboardingComplete}
+      routinePlanReady={routinePlanReady}
     />
   );
 }

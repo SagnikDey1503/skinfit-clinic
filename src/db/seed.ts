@@ -21,6 +21,7 @@ import {
   priorityReminders,
   scheduleEvents,
 } from "./schema";
+import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "../lib/routine";
 
 const DEMO_PATIENT_EMAIL = DEMO_LOGIN_EMAIL;
 const DEMO_PATIENT_PASSWORD = "SkinFitDemo2024!";
@@ -93,6 +94,19 @@ async function seed() {
 
     if (!patient || !doctor) {
       throw new Error("Could not load demo users after upsert.");
+    }
+
+    const demoNeedsRoutinePlan =
+      !patient.routinePlanAmItems?.length ||
+      !patient.routinePlanPmItems?.length;
+    if (demoNeedsRoutinePlan) {
+      await db
+        .update(users)
+        .set({
+          routinePlanAmItems: [...AM_ROUTINE_ITEMS],
+          routinePlanPmItems: [...PM_ROUTINE_ITEMS],
+        })
+        .where(eq(users.id, patient.id));
     }
 
     console.log("✓ Demo patient:", patient.email);

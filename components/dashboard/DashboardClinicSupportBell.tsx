@@ -1,90 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
 import { Bell } from "lucide-react";
-import {
-  CLINIC_SUPPORT_INBOX_EVENT,
-  CLINIC_SUPPORT_INBOX_REFRESH_EVENT,
-  getClinicSupportInboxLastSeenIso,
-  getDoctorInboxLastSeenIso,
-} from "@/src/lib/clinicSupportInboxClient";
-
-/** Routine reminders + clinic messages all land in the support thread; this badge reflects unread counts. */
-const POLL_MS = 15_000;
+import { useDashboardInbox } from "@/components/dashboard/DashboardInboxContext";
 
 export function DashboardClinicSupportBell() {
-  const [count, setCount] = useState(0);
-  const pathname = usePathname();
-
-  const refresh = useCallback(async () => {
-    try {
-      const supportSince = getClinicSupportInboxLastSeenIso();
-      const doctorSince = getDoctorInboxLastSeenIso();
-      const q = new URLSearchParams({
-        supportSince,
-        doctorSince,
-      });
-      const res = await fetch(`/api/chat/inbox/unread?${q.toString()}`, {
-        credentials: "include",
-      });
-      const data = (await res.json()) as {
-        success?: boolean;
-        total?: number;
-        hasMore?: boolean;
-      };
-      if (!res.ok || !data.success) {
-        setCount(0);
-        return;
-      }
-      const n = typeof data.total === "number" ? data.total : 0;
-      setCount(data.hasMore ? 100 : n);
-    } catch {
-      setCount(0);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const t = setInterval(() => void refresh(), POLL_MS);
-    return () => clearInterval(t);
-  }, [refresh]);
-
-  useEffect(() => {
-    void refresh();
-  }, [pathname, refresh]);
-
-  useEffect(() => {
-    const bump = () => void refresh();
-    window.addEventListener(CLINIC_SUPPORT_INBOX_EVENT, bump);
-    window.addEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, bump);
-    window.addEventListener("focus", bump);
-    window.addEventListener("pageshow", bump);
-    const onVis = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener(CLINIC_SUPPORT_INBOX_EVENT, bump);
-      window.removeEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, bump);
-      window.removeEventListener("focus", bump);
-      window.removeEventListener("pageshow", bump);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [refresh]);
+  const { total: count, typesFull } = useDashboardInbox();
 
   const label =
     count >= 100
-      ? "Many new alerts (chat or doctor voice)"
+      ? `Many new alerts${typesFull ? ` — ${typesFull}` : ""}`
       : count > 0
-        ? `${count} new — clinic chat, doctor messages, or voice notes`
-        : "Notifications — chat and doctor voice notes";
+        ? `${count} new${typesFull ? `: ${typesFull}` : ""}`
+        : "Notifications — open to see chat and voice alerts";
 
   return (
     <Link
       href="/dashboard/notifications"
-      className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+      className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
       title={label}
       aria-label={label}
     >

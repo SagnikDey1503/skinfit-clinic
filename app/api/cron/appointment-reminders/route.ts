@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { markPastAppointmentsCompleted } from "@/src/lib/markPastAppointmentsCompleted";
 import { runAppointmentReminders } from "@/src/lib/runAppointmentReminders";
 import { runRoutineReminders } from "@/src/lib/runRoutineReminders";
-
 export const dynamic = "force-dynamic";
 
 function authorizeCron(req: Request): boolean {
@@ -34,6 +33,7 @@ export async function GET(req: Request) {
     const routine = await runRoutineReminders();
     return NextResponse.json({
       ok: true,
+      routinePlanSync: { updated: 0 },
       appointments,
       routine,
     });

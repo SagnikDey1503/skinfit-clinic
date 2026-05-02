@@ -92,7 +92,10 @@ export async function POST(req: Request) {
       createdAt: doctorFeedbackVoiceNotes.createdAt,
     });
 
-  void notifyPatientDoctorVoiceNote(patientId);
+  void notifyPatientDoctorVoiceNote(patientId, {
+    attachedToReport: scanId != null,
+    scanId,
+  });
 
   return NextResponse.json({
     success: true,

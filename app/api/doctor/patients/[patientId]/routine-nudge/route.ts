@@ -43,6 +43,15 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (code === "ROUTINE_PLAN_NOT_SET") {
+      return NextResponse.json(
+        {
+          error: code,
+          message: "Save the patient AM/PM checklist first.",
+        },
+        { status: 400 }
+      );
+    }
     if (code === "ROUTINE_ALREADY_DONE") {
       return NextResponse.json(
         { error: code, message: "All steps for that routine are already checked today." },

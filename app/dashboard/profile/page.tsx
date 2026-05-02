@@ -8,16 +8,16 @@ export default async function ProfilePage() {
   if (!user) redirect("/login");
 
   return (
-    <div className="space-y-6">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
+    <div className="mx-auto max-w-3xl space-y-8 px-1 pb-10 sm:px-0">
+      <header className="text-center">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 sm:text-3xl">
           Your profile
         </h1>
-        <p className="mt-1 text-sm text-zinc-600">
+        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-600">
           Same account as the mobile app — Skin DNA, visits, and settings stay in
           sync.
         </p>
-      </div>
+      </header>
       <ProfileSkinDnaSection />
       <ProfileForm initial={user} />
     </div>
