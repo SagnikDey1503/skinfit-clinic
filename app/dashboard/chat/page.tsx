@@ -43,12 +43,34 @@ const contacts = [
 
 const CARD_SHADOW = "rounded-[22px] border border-zinc-100 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.06)]";
 
+const MAX_CHAT_ATTACHMENT_URI_LEN = 3_200_000;
+
+function dataUriKind(uri: string | null | undefined): "image" | "audio" | "other" | null {
+  if (!uri) return null;
+  if (uri.startsWith("data:image/")) return "image";
+  if (uri.startsWith("data:audio/")) return "audio";
+  return "other";
+}
+
+function fileToDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("FILE_READ_FAILED"));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ChatPage() {
   type AssistantId = "ai" | "doctor" | "support";
   type ChatMsg = {
     id: string;
     sender: AssistantId | "patient";
     text: string;
+    attachmentUrl?: string | null;
     createdAt?: string;
   };
 
@@ -65,6 +87,11 @@ export default function ChatPage() {
   const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
   const [typingIndex, setTypingIndex] = useState(0);
   const [sidebarUnread, setSidebarUnread] = useState({ support: 0, doctor: 0 });
+  const [attachment, setAttachment] = useState<{
+    fileName: string;
+    dataUri: string;
+  } | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeAssistantRef = useRef<AssistantId>("ai");
   activeAssistantRef.current = activeAssistant;
@@ -114,6 +141,7 @@ export default function ChatPage() {
           id: string;
           sender: AssistantId | "patient";
           text: string;
+          attachmentUrl?: string | null;
           createdAt?: string;
         }>;
       };
@@ -128,6 +156,7 @@ export default function ChatPage() {
           id: m.id,
           sender: m.sender,
           text: m.text,
+          attachmentUrl: m.attachmentUrl ?? null,
           createdAt: m.createdAt,
         })),
         clinicReadThroughIso: data.clinicReadThroughIso,
@@ -414,7 +443,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const a = new URLSearchParams(window.location.search).get("assistant");
+    const params = new URLSearchParams(window.location.search);
+    const a = params.get("assistant");
     if (a === "support" || a === "doctor" || a === "ai") {
       setActiveAssistant(a);
     }
@@ -469,6 +499,7 @@ export default function ChatPage() {
           await fetchPlainMessages(activeAssistant);
         if (cancelled) return;
         setMessages(plainMessages);
+      setAttachment(null);
         if (activeAssistant === "support") {
           markClinicSupportInboxSeenFromServer(clinicReadThroughIso);
         }
@@ -503,12 +534,13 @@ export default function ChatPage() {
 
   async function sendMessage() {
     const text = inputValue.trim();
-    if (!text || isLoading) return;
+    if (isLoading) return;
 
     setError(null);
 
     // LLM assistant chat (AI only for SkinnFit AI Assistant).
     if (activeAssistant === "ai") {
+      if (!text) return;
       const patientMsg: ChatMsg = {
         id: crypto.randomUUID(),
         sender: "patient",
@@ -571,6 +603,8 @@ export default function ChatPage() {
       return;
     }
 
+    if (!text && !attachment) return;
+
     // Plain stored chat for Dr Ruby / Clinic Support (no AI replies).
     setIsLoading(true);
     try {
@@ -581,6 +615,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           assistantId: activeAssistant,
           text,
+          attachmentUrl: attachment?.dataUri ?? null,
         }),
       });
 
@@ -599,6 +634,7 @@ export default function ChatPage() {
         markDoctorInboxSeenFromServer(clinicReadThroughIso);
       }
       setInputValue("");
+      setAttachment(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send message.");
     } finally {
@@ -762,6 +798,28 @@ export default function ChatPage() {
                           : "rounded-r-2xl rounded-tl-2xl border border-zinc-100 bg-white text-zinc-800 shadow-sm"
                       }`}
                     >
+                      {dataUriKind(msg.attachmentUrl) === "image" ? (
+                        <a
+                          href={msg.attachmentUrl ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mb-2 block"
+                        >
+                          <img
+                            src={msg.attachmentUrl ?? undefined}
+                            alt="Chat attachment"
+                            className="max-h-56 w-auto rounded-xl border border-black/10 object-contain"
+                          />
+                        </a>
+                      ) : null}
+                      {dataUriKind(msg.attachmentUrl) === "audio" ? (
+                        <audio
+                          controls
+                          preload="metadata"
+                          src={msg.attachmentUrl ?? undefined}
+                          className="mb-2 h-9 w-full max-w-sm"
+                        />
+                      ) : null}
                       <div className="text-sm leading-relaxed [&_a]:break-words">
                         <ReactMarkdown
                           skipHtml={true}
@@ -828,16 +886,60 @@ export default function ChatPage() {
 
         <div className="border-t border-zinc-100 bg-white p-4">
           <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2">
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              accept="image/*,audio/*"
+              className="hidden"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.currentTarget.value = "";
+                if (!f) return;
+                if (activeAssistant === "ai") {
+                  setError("Attachments are only available in Doctor and Clinic Support chats.");
+                  return;
+                }
+                if (!f.type.startsWith("image/") && !f.type.startsWith("audio/")) {
+                  setError("Only image or audio files are supported.");
+                  return;
+                }
+                try {
+                  const uri = await fileToDataUri(f);
+                  if (uri.length > MAX_CHAT_ATTACHMENT_URI_LEN) {
+                    setError("Attachment is too large. Try a smaller file.");
+                    return;
+                  }
+                  setAttachment({ fileName: f.name, dataUri: uri });
+                } catch {
+                  setError("Could not read attachment.");
+                }
+              }}
+            />
             <button
               type="button"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white hover:text-teal-700"
-              title="Attach file"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-white hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-40"
+              title={
+                activeAssistant === "ai"
+                  ? "Attachments are disabled for AI chat"
+                  : "Attach image or audio"
+              }
+              disabled={activeAssistant === "ai" || isLoading}
+              onClick={() => attachmentInputRef.current?.click()}
             >
               <Paperclip className="h-5 w-5" />
             </button>
+            {attachment ? (
+              <span className="max-w-[160px] truncate rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-800">
+                {attachment.fileName}
+              </span>
+            ) : null}
             <input
               type="text"
-              placeholder="Type a message..."
+              placeholder={
+                activeAssistant === "ai"
+                  ? "Type a message for AI..."
+                  : "Type a message (you can also attach image/audio)..."
+              }
               className="max-h-24 flex-1 bg-transparent px-2 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -852,7 +954,12 @@ export default function ChatPage() {
               type="button"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-600 text-white transition-colors hover:bg-teal-500"
               title="Send"
-              disabled={isLoading}
+              disabled={
+                isLoading ||
+                (activeAssistant === "ai"
+                  ? !inputValue.trim()
+                  : !inputValue.trim() && !attachment)
+              }
               onClick={() => void sendMessage()}
             >
               <Send className="h-4 w-4" />

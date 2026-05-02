@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Stethoscope, Users } from "lucide-react";
 import { DoctorLogoutButton } from "@/components/doctor/DoctorLogoutButton";
+import { DoctorPatientChatBell } from "@/components/doctor/DoctorPatientChatBell";
 import { DoctorSosBell } from "@/components/doctor/DoctorSosBell";
 import { getDoctorPortalUserId } from "@/src/lib/auth/doctor-access";
 
@@ -31,6 +32,7 @@ export default async function DoctorPortalLayout({
               <Users className="h-4 w-4" />
               Patients
             </Link>
+            <DoctorPatientChatBell />
             <DoctorSosBell />
             <DoctorLogoutButton />
           </nav>

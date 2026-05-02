@@ -13,10 +13,10 @@ export default async function DoctorPatientsPage({
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Patients</h1>
         <p className="text-sm text-slate-600">
-          Filter by search, concern, or recent SOS alerts. SOS patients are highlighted in red;
-          use{" "}
-          <strong className="font-semibold text-slate-800">Alerts</strong> in the header for the
-          latest SOS list (push is also sent to the doctor app when a patient sends SOS).
+          Filter by search, concern, or recent SOS alerts. Use{" "}
+          <strong className="font-semibold text-slate-800">Messages</strong> for patient chat
+          awaiting reply and <strong className="font-semibold text-slate-800">Alerts</strong> for
+          SOS. Push goes to doctor accounts for both patient messages and SOS.
         </p>
       </div>
       <DoctorPatientsClient initialSosOnly={initialSosOnly} />

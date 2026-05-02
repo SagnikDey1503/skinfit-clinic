@@ -1,13 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Circle, Mic, Square, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Circle,
+  Eraser,
+  Mic,
+  Paperclip,
+  Send,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { FACE_SCAN_CAPTURE_STEPS } from "@/src/lib/faceScanCaptures";
 import { MAX_VISIT_NOTE_ATTACHMENT_URI_LEN } from "@/src/lib/visitNoteAttachments";
 
 const MAX_RECORD_SECONDS = 120;
 const MAX_AUDIO_URI_LEN = 1_800_000;
+const MAX_CHAT_ATTACHMENT_URI_LEN = 3_200_000;
+
+function staffDoctorChatClearStorageKey(patientId: string) {
+  return `skinfit.staffDoctorChatClearAt.${patientId}`;
+}
+
+function readStaffDoctorChatClearAt(patientId: string): string | null {
+  if (typeof window === "undefined") return null;
+  return sessionStorage.getItem(staffDoctorChatClearStorageKey(patientId));
+}
 
 /** Doctor scan image URL with optional `preview=1`; append angle index for multi-capture. */
 function doctorScanAngleSrc(imageDoctorUrl: string, index: number): string {
@@ -169,6 +188,14 @@ type DetailJson = {
   }>;
 };
 
+type DoctorThreadMessage = {
+  id: string;
+  sender: "patient" | "doctor" | "support";
+  text: string;
+  attachmentUrl: string | null;
+  createdAt: string;
+};
+
 function formatMmSs(totalSec: number) {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
@@ -209,6 +236,13 @@ function blobToDataUri(blob: Blob): Promise<string> {
   });
 }
 
+function dataUriKind(uri: string | null | undefined): "image" | "audio" | "other" | null {
+  if (!uri) return null;
+  if (uri.startsWith("data:image/")) return "image";
+  if (uri.startsWith("data:audio/")) return "audio";
+  return "other";
+}
+
 export function DoctorPatientDetailClient({ patientId }: { patientId: string }) {
   const [data, setData] = useState<DetailJson | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -236,12 +270,26 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
     blob: Blob;
     url: string;
   } | null>(null);
+  const [doctorChatMessages, setDoctorChatMessages] = useState<DoctorThreadMessage[]>([]);
+  const [doctorChatLoading, setDoctorChatLoading] = useState(false);
+  const [doctorChatBusy, setDoctorChatBusy] = useState(false);
+  const [doctorChatText, setDoctorChatText] = useState("");
+  const [doctorChatAttachment, setDoctorChatAttachment] = useState<{
+    fileName: string;
+    dataUri: string;
+  } | null>(null);
+  const [doctorChatHint, setDoctorChatHint] = useState<string | null>(null);
+  const [doctorChatStaffClearAt, setDoctorChatStaffClearAt] = useState<
+    string | null
+  >(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
+  const doctorChatAttachInputRef = useRef<HTMLInputElement | null>(null);
+  const doctorChatScrollRef = useRef<HTMLDivElement | null>(null);
 
   const stopMicStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -296,9 +344,62 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
     }
   }, [patientId]);
 
+  const loadDoctorChat = useCallback(async () => {
+    setDoctorChatLoading(true);
+    setDoctorChatHint(null);
+    try {
+      const res = await fetch(`/api/doctor/patients/${patientId}/chat`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const j = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        messages?: DoctorThreadMessage[];
+      };
+      if (!res.ok || !j.ok) {
+        setDoctorChatHint(j.error ?? "Could not load doctor chat.");
+        return;
+      }
+      setDoctorChatMessages(j.messages ?? []);
+    } catch {
+      setDoctorChatHint("Could not load doctor chat.");
+    } finally {
+      setDoctorChatLoading(false);
+    }
+  }, [patientId]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadDoctorChat();
+  }, [loadDoctorChat]);
+
+  useEffect(() => {
+    setDoctorChatStaffClearAt(readStaffDoctorChatClearAt(patientId));
+  }, [patientId]);
+
+  const visibleDoctorChatMessages = useMemo(() => {
+    if (!doctorChatStaffClearAt) return doctorChatMessages;
+    const t = Date.parse(doctorChatStaffClearAt);
+    if (Number.isNaN(t)) return doctorChatMessages;
+    return doctorChatMessages.filter((m) => Date.parse(m.createdAt) > t);
+  }, [doctorChatMessages, doctorChatStaffClearAt]);
+
+  const scrollDoctorChatToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = doctorChatScrollRef.current;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (doctorChatLoading) return;
+    scrollDoctorChatToBottom();
+  }, [doctorChatLoading, visibleDoctorChatMessages, scrollDoctorChatToBottom]);
 
   useEffect(() => {
     setRoutinePlanTextDirty(false);
@@ -363,6 +464,39 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
     },
     [uploadVoiceDataUri, clearVoicePreview]
   );
+
+  const sendDoctorChatMessage = useCallback(async () => {
+    const text = doctorChatText.trim();
+    const attachmentUrl = doctorChatAttachment?.dataUri ?? null;
+    if (!text && !attachmentUrl) return;
+
+    setDoctorChatBusy(true);
+    setDoctorChatHint(null);
+    try {
+      const res = await fetch(`/api/doctor/patients/${patientId}/chat`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          attachmentUrl,
+        }),
+      });
+      const j = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !j.ok) {
+        setDoctorChatHint(j.error ?? "Could not send message.");
+        return;
+      }
+      setDoctorChatText("");
+      setDoctorChatAttachment(null);
+      await loadDoctorChat();
+      setDoctorChatHint("Message sent.");
+    } catch {
+      setDoctorChatHint("Network error while sending.");
+    } finally {
+      setDoctorChatBusy(false);
+    }
+  }, [doctorChatText, doctorChatAttachment, patientId, loadDoctorChat]);
 
   function queueVoiceFilePreview(file: File | null) {
     if (!file) return;
@@ -614,6 +748,194 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
             ))}
           </ul>
         )}
+      </div>
+
+      <div
+        id="doctor-patient-chat"
+        className="scroll-mt-28 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Doctor chat (patient thread)
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Receiver view for the patient&apos;s doctor chat. Supports text, image, and voice
+              note attachments.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {doctorChatStaffClearAt ? (
+              <button
+                type="button"
+                onClick={() => {
+                  sessionStorage.removeItem(staffDoctorChatClearStorageKey(patientId));
+                  setDoctorChatStaffClearAt(null);
+                  setDoctorChatHint(null);
+                  scrollDoctorChatToBottom();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Show full history
+              </button>
+            ) : null}
+            {doctorChatMessages.length > 0 ? (
+              <button
+                type="button"
+                disabled={doctorChatLoading}
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      "Hide all messages in this thread on your screen? Nothing is deleted — the patient still has the full history. New messages after this will appear as usual."
+                    )
+                  ) {
+                    return;
+                  }
+                  const now = new Date().toISOString();
+                  sessionStorage.setItem(
+                    staffDoctorChatClearStorageKey(patientId),
+                    now
+                  );
+                  setDoctorChatStaffClearAt(now);
+                  setDoctorChatHint(
+                    "Older messages are hidden on your screen only. Use “Show full history” to see them again."
+                  );
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Eraser className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="hidden sm:inline">Clear my view</span>
+                <span className="sm:hidden">Clear view</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div
+          ref={doctorChatScrollRef}
+          className="max-h-[320px] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-3"
+        >
+          {doctorChatLoading ? (
+            <p className="text-sm text-slate-500">Loading thread…</p>
+          ) : doctorChatMessages.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No doctor-thread messages yet for this patient.
+            </p>
+          ) : visibleDoctorChatMessages.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No messages in your current view. Use “Show full history” or wait for new messages
+              from the patient.
+            </p>
+          ) : (
+            visibleDoctorChatMessages.map((m) => (
+              <div
+                key={m.id}
+                className={`flex ${m.sender === "doctor" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                    m.sender === "doctor"
+                      ? "bg-teal-600 text-white"
+                      : "border border-slate-200 bg-white text-slate-800"
+                  }`}
+                >
+                  {dataUriKind(m.attachmentUrl) === "image" ? (
+                    <a
+                      href={m.attachmentUrl ?? "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mb-2 block"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={m.attachmentUrl ?? undefined}
+                        alt="chat image"
+                        className="max-h-56 w-auto rounded-lg object-contain"
+                      />
+                    </a>
+                  ) : null}
+                  {dataUriKind(m.attachmentUrl) === "audio" ? (
+                    <audio
+                      controls
+                      preload="metadata"
+                      className="mb-2 h-8 w-full max-w-sm"
+                      src={m.attachmentUrl ?? undefined}
+                    />
+                  ) : null}
+                  <p className="whitespace-pre-wrap">{m.text}</p>
+                  <p
+                    className={`mt-1 text-[11px] ${
+                      m.sender === "doctor" ? "text-teal-100" : "text-slate-400"
+                    }`}
+                  >
+                    {new Date(m.createdAt).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+          <input
+            ref={doctorChatAttachInputRef}
+            type="file"
+            accept="image/*,audio/*"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.currentTarget.value = "";
+              if (!f) return;
+              if (!f.type.startsWith("image/") && !f.type.startsWith("audio/")) {
+                setDoctorChatHint("Only image or audio files are supported.");
+                return;
+              }
+              try {
+                const dataUri = await blobToDataUri(f);
+                if (dataUri.length > MAX_CHAT_ATTACHMENT_URI_LEN) {
+                  setDoctorChatHint("Attachment is too large. Try a smaller file.");
+                  return;
+                }
+                setDoctorChatAttachment({ fileName: f.name, dataUri });
+              } catch {
+                setDoctorChatHint("Could not read attachment.");
+              }
+            }}
+          />
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => doctorChatAttachInputRef.current?.click()}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              Attach image/audio
+            </button>
+            {doctorChatAttachment ? (
+              <span className="max-w-[240px] truncate text-xs text-teal-700">
+                {doctorChatAttachment.fileName}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={doctorChatText}
+              onChange={(e) => setDoctorChatText(e.target.value)}
+              placeholder="Reply to patient doctor chat..."
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+            />
+            <button
+              type="button"
+              disabled={doctorChatBusy || (!doctorChatText.trim() && !doctorChatAttachment)}
+              onClick={() => void sendDoctorChatMessage()}
+              className="inline-flex items-center gap-1 rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-500 disabled:opacity-50"
+            >
+              <Send className="h-4 w-4" />
+              {doctorChatBusy ? "Sending…" : "Send"}
+            </button>
+          </div>
+          {doctorChatHint ? (
+            <p className="mt-2 text-xs text-slate-600">{doctorChatHint}</p>
+          ) : null}
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

@@ -47,6 +47,7 @@ export async function GET(req: Request) {
       id: chatMessages.id,
       sender: chatMessages.sender,
       text: chatMessages.text,
+      attachmentUrl: chatMessages.attachmentUrl,
       createdAt: chatMessages.createdAt,
     })
     .from(chatMessages)
@@ -78,6 +79,7 @@ export async function GET(req: Request) {
       id: m.id,
       sender: m.sender,
       text: m.text,
+      attachmentUrl: m.attachmentUrl ?? null,
       createdAt: m.createdAt,
     })),
     ...(clinicReadThroughIso ? { clinicReadThroughIso } : {}),

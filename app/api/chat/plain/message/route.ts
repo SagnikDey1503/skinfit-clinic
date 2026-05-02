@@ -14,6 +14,20 @@ function clampText(s: unknown, maxLen: number): string | null {
   return t;
 }
 
+function normalizeAttachment(
+  raw: unknown
+): string | null | "INVALID" {
+  if (raw == null) return null;
+  if (typeof raw !== "string") return "INVALID";
+  const t = raw.trim();
+  if (!t) return null;
+  if (t.length > 3_200_000) return "INVALID";
+  if (!t.startsWith("data:image/") && !t.startsWith("data:audio/")) {
+    return "INVALID";
+  }
+  return t;
+}
+
 export async function POST(req: Request) {
   const userId = await getSessionUserIdFromRequest(req);
   if (!userId) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
@@ -43,14 +57,23 @@ export async function POST(req: Request) {
   }
 
   const isUrgent = Boolean(b.isUrgent);
-  const attachmentUrl =
-    typeof b.attachmentUrl === "string"
-      ? b.attachmentUrl.trim().slice(0, 500_000)
-      : null;
+  const attachmentParsed = normalizeAttachment(b.attachmentUrl);
+  if (attachmentParsed === "INVALID") {
+    return NextResponse.json({ error: "INVALID_ATTACHMENT" }, { status: 400 });
+  }
+  if (assistantId === "ai" && attachmentParsed) {
+    return NextResponse.json(
+      { error: "ATTACHMENTS_NOT_ALLOWED_FOR_AI" },
+      { status: 400 }
+    );
+  }
+  const attachmentUrl = attachmentParsed;
 
   let patientText = clampText(b.text, 4000);
   if (!patientText && attachmentUrl) {
-    patientText = "📎 Attachment (see message)";
+    patientText = attachmentUrl.startsWith("data:audio/")
+      ? "🎤 Voice note"
+      : "🖼️ Image";
   }
   if (!patientText) {
     return NextResponse.json({ error: "TEXT_REQUIRED" }, { status: 400 });
@@ -94,11 +117,13 @@ export async function POST(req: Request) {
     attachmentUrl: attachmentUrl || null,
   });
 
-  if (isUrgent && assistantId === "doctor") {
+  if (assistantId === "doctor") {
     void notifyDoctorUsers({
-      title: "SOS — patient message",
+      title: isUrgent ? "SOS — patient message" : "New patient message",
       body: patientText.slice(0, 140),
-      data: { type: "sos_chat", patientId: userId },
+      data: isUrgent
+        ? { type: "sos_chat", patientId: userId }
+        : { type: "doctor_chat", patientId: userId },
     });
   }
 

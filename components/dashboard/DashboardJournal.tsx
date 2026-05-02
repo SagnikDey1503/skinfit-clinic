@@ -17,6 +17,10 @@ type JournalEntry = {
   mood: string;
   amRoutine: boolean;
   pmRoutine: boolean;
+  dietType?: string | null;
+  sunExposure?: string | null;
+  cycleDay?: number | null;
+  comments?: string | null;
 };
 
 export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
@@ -30,6 +34,10 @@ export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
   const [mood, setMood] = useState(todayLog?.mood ?? "Neutral");
   const [amRoutine, setAmRoutine] = useState(todayLog?.amRoutine ?? false);
   const [pmRoutine, setPmRoutine] = useState(todayLog?.pmRoutine ?? false);
+  const [dietType, setDietType] = useState("balanced");
+  const [sunExposure, setSunExposure] = useState("low");
+  const [cycleDay, setCycleDay] = useState("");
+  const [comments, setComments] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,6 +62,18 @@ export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
           setMood(entry.mood ?? "Neutral");
           setAmRoutine(entry.amRoutine);
           setPmRoutine(entry.pmRoutine);
+          setDietType(
+            typeof entry.dietType === "string" ? entry.dietType : "balanced"
+          );
+          setSunExposure(
+            typeof entry.sunExposure === "string" ? entry.sunExposure : "low"
+          );
+          setCycleDay(
+            typeof entry.cycleDay === "number" && entry.cycleDay > 0
+              ? String(entry.cycleDay)
+              : ""
+          );
+          setComments(typeof entry.comments === "string" ? entry.comments : "");
         } else {
           setSleep("0");
           setStress("5");
@@ -62,6 +82,10 @@ export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
           setMood("Neutral");
           setAmRoutine(false);
           setPmRoutine(false);
+          setDietType("balanced");
+          setSunExposure("low");
+          setCycleDay("");
+          setComments("");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -89,6 +113,13 @@ export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
           mood,
           amRoutine,
           pmRoutine,
+          dietType,
+          sunExposure,
+          cycleDay:
+            cycleDay.trim() === ""
+              ? null
+              : Math.min(35, Math.max(1, Number.parseInt(cycleDay, 10) || 0)),
+          comments: comments.trim() || null,
         }),
       });
       if (!res.ok) {
@@ -189,7 +220,7 @@ export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-medium text-zinc-600">
-            Water (glasses)
+            Hydration (litres approx.)
           </label>
           <input
             type="number"
@@ -198,6 +229,77 @@ export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
             onChange={(e) => setWater(e.target.value)}
             disabled={loading}
             className={inputClass}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex cursor-pointer items-center gap-2 rounded-[14px] border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-800">
+          <input
+            type="checkbox"
+            checked={amRoutine}
+            onChange={(e) => setAmRoutine(e.target.checked)}
+            disabled={loading}
+            className="h-4 w-4 rounded border-zinc-300 text-[#6B8E8E] focus:ring-[#6B8E8E]/30"
+          />
+          AM checklist done today
+        </label>
+        <label className="flex cursor-pointer items-center gap-2 rounded-[14px] border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-800">
+          <input
+            type="checkbox"
+            checked={pmRoutine}
+            onChange={(e) => setPmRoutine(e.target.checked)}
+            disabled={loading}
+            className="h-4 w-4 rounded border-zinc-300 text-[#6B8E8E] focus:ring-[#6B8E8E]/30"
+          />
+          PM checklist done today
+        </label>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+            Diet type today
+          </label>
+          <select
+            value={dietType}
+            onChange={(e) => setDietType(e.target.value)}
+            disabled={loading}
+            className={inputClass}
+          >
+            <option value="heavy">Heavy</option>
+            <option value="balanced">Balanced</option>
+            <option value="light">Light</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+            Sun exposure
+          </label>
+          <select
+            value={sunExposure}
+            onChange={(e) => setSunExposure(e.target.value)}
+            disabled={loading}
+            className={inputClass}
+          >
+            <option value="low">Low</option>
+            <option value="moderate">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-zinc-600">
+            Menstrual cycle day (optional)
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={35}
+            value={cycleDay}
+            onChange={(e) => setCycleDay(e.target.value)}
+            disabled={loading}
+            className={inputClass}
+            placeholder="e.g. 14"
           />
         </div>
       </div>
@@ -211,6 +313,14 @@ export function DashboardJournal({ todayLog }: { todayLog: TodayJournalLog }) {
           onChange={(e) => setJournalText(e.target.value)}
           placeholder="How is your skin feeling today? Any changes or concerns?"
           rows={5}
+          disabled={loading}
+          className="mb-4 w-full resize-none rounded-[14px] border border-white/60 bg-white/40 px-4 py-3 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-[#6B8E8E]/40 focus:outline-none focus:ring-2 focus:ring-[#6B8E8E]/15"
+        />
+        <textarea
+          value={comments}
+          onChange={(e) => setComments(e.target.value)}
+          placeholder="Comments: pimples, dryness, scalp, weight or any observation"
+          rows={3}
           disabled={loading}
           className="mb-4 w-full resize-none rounded-[14px] border border-white/60 bg-white/40 px-4 py-3 text-sm text-zinc-800 placeholder:text-zinc-400 focus:border-[#6B8E8E]/40 focus:outline-none focus:ring-2 focus:ring-[#6B8E8E]/15"
         />

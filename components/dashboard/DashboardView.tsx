@@ -7,6 +7,7 @@ import {
   Archive,
   Check,
   ChevronRight,
+  Loader2,
   Mic,
   Moon,
   Sun,
@@ -28,6 +29,19 @@ const PINK = "#F8A5B2";
 const BLUE = "#CCE4F7";
 const MINT = "#E0F0ED";
 const TEAL = "#6B8E8E";
+
+/** Matches `/api/chat/plain/message` patient text clamp (server trims & caps length). */
+const PLAIN_DOCTOR_CHAT_MAX_LEN = 4000;
+const DOCTOR_CHECKUP_FOLLOWUP_PREFIX =
+  "Hi doctor, this is my doubt regarding my checkup message:\n\n";
+
+function buildAutoDoctorFollowUpMessage(checkupNotes: string): string {
+  const notes = checkupNotes.trim();
+  const combined = `${DOCTOR_CHECKUP_FOLLOWUP_PREFIX}${notes}`;
+  if (combined.length <= PLAIN_DOCTOR_CHAT_MAX_LEN) return combined;
+  const budget = PLAIN_DOCTOR_CHAT_MAX_LEN - DOCTOR_CHECKUP_FOLLOWUP_PREFIX.length - 1;
+  return `${DOCTOR_CHECKUP_FOLLOWUP_PREFIX}${notes.slice(0, Math.max(0, budget))}…`;
+}
 
 interface SkinParam {
   label: string;
@@ -65,8 +79,14 @@ interface DashboardViewProps {
   todayLog: TodayJournalLog;
   amItems: string[];
   pmItems: string[];
+  kaiSkinScore?: number;
+  weeklyProgressDelta?: number;
+  lifestyleAlignmentScore?: number;
+  todayFocusMessage?: string | null;
   routineScore?: number;
   weeklyChangePercent?: number;
+  streakCurrent?: number;
+  streakLongest?: number;
   doctorFeedback?: string | null;
   doctorVoiceNotes?: DoctorVoiceNoteItem[];
   doctorArchivedVoiceNotes?: DoctorVoiceNoteItem[];
@@ -216,10 +236,12 @@ function DonutGauge({
   percent,
   label,
   extra,
+  valueOverride,
 }: {
   percent: number;
   label: string;
   extra?: "weekly";
+  valueOverride?: string;
 }) {
   const clamped = Math.min(100, Math.max(0, percent));
   const offset = CIRC * (1 - clamped / 100);
@@ -261,7 +283,7 @@ function DonutGauge({
             <ChevronsUp className="mb-0.5 h-5 w-5 text-emerald-600" strokeWidth={2.5} />
           )}
           <span className="text-xl font-bold tracking-tight text-zinc-900">
-            {clamped}%
+            {valueOverride ?? `${clamped}%`}
           </span>
         </div>
       </div>
@@ -303,8 +325,14 @@ export function DashboardView({
   todayLog,
   amItems,
   pmItems,
+  kaiSkinScore,
+  weeklyProgressDelta,
+  lifestyleAlignmentScore,
+  todayFocusMessage = null,
   routineScore = 80,
   weeklyChangePercent = 5,
+  streakCurrent = 0,
+  streakLongest = 0,
   doctorFeedback = "",
   doctorVoiceNotes = [],
   doctorArchivedVoiceNotes = [],
@@ -333,6 +361,10 @@ export function DashboardView({
   /** Align today's log with the browser calendar (PATCH already uses this). Server SSR uses UTC on Vercel — sync fixes wrong row. */
   type TodaySync = TodayJournalLog | "pending" | "error";
   const [syncedTodayLog, setSyncedTodayLog] = useState<TodaySync>("pending");
+  const [doctorFollowUpBusy, setDoctorFollowUpBusy] = useState(false);
+  const [doctorFollowUpHint, setDoctorFollowUpHint] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -416,6 +448,15 @@ export function DashboardView({
   const skinPercent = latestScan
     ? Math.min(100, Math.max(0, Math.round(latestScan.skinScore)))
     : 40;
+  const kaiScore = Math.min(
+    100,
+    Math.max(0, Math.round(kaiSkinScore ?? skinPercent))
+  );
+  const lifestyleScore = Math.min(
+    100,
+    Math.max(0, Math.round(lifestyleAlignmentScore ?? routineScore))
+  );
+  const weeklyDelta = Math.round(weeklyProgressDelta ?? weeklyChangePercent);
 
   const skinParamsDate = selectedScan
     ? format(new Date(selectedScan.createdAt), "dd/MM/yy")
@@ -553,6 +594,9 @@ export function DashboardView({
     [routine.am, routine.pm]
   );
 
+  const streak7Progress = Math.min(7, Math.max(0, streakCurrent));
+  const streak30Progress = Math.min(30, Math.max(0, streakCurrent));
+
   return (
     <div className="space-y-6 text-zinc-900">
       {/* Title + gauges */}
@@ -561,18 +605,23 @@ export function DashboardView({
           Dashboard
         </h1>
         <div className="flex flex-wrap items-start justify-center gap-8 md:gap-12">
-          <DonutGauge percent={skinPercent} label="Skin Score" />
-          <DonutGauge percent={routineScore} label="Consistency Score" />
+          <DonutGauge percent={kaiScore} label="kAI Skin Score" />
           <DonutGauge
-            percent={weeklyChangePercent}
-            label="Weekly Change"
+            percent={Math.min(100, Math.max(0, 50 + weeklyDelta))}
+            label="Weekly Progress Delta"
             extra="weekly"
+            valueOverride={`${weeklyDelta > 0 ? "+" : ""}${weeklyDelta}`}
+          />
+          <DonutGauge
+            percent={lifestyleScore}
+            label="Lifestyle Alignment Score"
           />
         </div>
       </section>
 
       <DashboardDayQuestBanner
         routineProgress={routineProgress}
+        focusMessage={todayFocusMessage}
         questSubtext={
           onboardingComplete && !routineHasSteps
             ? "Your customised daily plan will be given by the clinic soon."
@@ -590,7 +639,15 @@ export function DashboardView({
             <h2 className="text-lg font-bold text-zinc-900">AM/PM Schedule</h2>
             <DashboardSectionCountdown />
           </div>
-          <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700">
+              7-day streak: {streak7Progress}/7
+            </span>
+            <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700">
+              30-day streak: {streak30Progress}/30
+            </span>
+            <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
+          </div>
         </div>
         {routineCheckboxesLocked ? (
           <p className="mb-3 text-xs font-medium text-zinc-500">
@@ -722,12 +779,19 @@ export function DashboardView({
         </div>
       </section>
 
-      {/* Skin Parameters */}
+      {/* Skin Parameter Analysis */}
       <section
         className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
       >
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-bold text-zinc-900">Skin Parameters</h2>
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-lg font-bold text-zinc-900">Skin Parameter Analysis</h2>
+            <p className="max-w-2xl text-xs leading-relaxed text-zinc-500">
+              The AI tracker will analyse skin across Acne, Pores, Dark Spots, Wrinkles,
+              Pigmentation, Uniformity &amp; Elasticity and provide individual scores for each
+              parameter (higher is better).
+            </p>
+          </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
             {skinScanHistory.length > 1 ? (
               <>
@@ -770,24 +834,74 @@ export function DashboardView({
         style={{ border: "1px solid #eee7dc" }}
         aria-labelledby="doctor-written-feedback-heading"
       >
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2
-              id="doctor-written-feedback-heading"
-              className="text-lg font-bold tracking-tight text-zinc-900"
-            >
-              Doctor&apos;s feedback
-            </h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              Written notes from your care team (not voice messages).
-            </p>
-          </div>
-        </div>
+        <h2
+          id="doctor-written-feedback-heading"
+          className="mb-4 text-lg font-bold tracking-tight text-zinc-900"
+        >
+          Doctor&apos;s feedback
+        </h2>
 
         {doctorFeedback?.trim() ? (
-          <div className="min-h-[100px] rounded-2xl bg-white/92 px-4 py-3.5 text-sm leading-relaxed text-zinc-700 shadow-[0_1px_4px_rgba(15,23,42,0.05),inset_0_0_0_1px_rgba(120,113,108,0.08)]">
-            {doctorFeedback}
-          </div>
+          <>
+            <div className="min-h-[100px] rounded-2xl bg-white/92 px-4 py-3.5 text-sm leading-relaxed text-zinc-700 shadow-[0_1px_4px_rgba(15,23,42,0.05),inset_0_0_0_1px_rgba(120,113,108,0.08)]">
+              {doctorFeedback}
+            </div>
+            <button
+              type="button"
+              disabled={doctorFollowUpBusy}
+              onClick={() => {
+                void (async () => {
+                  const notes = doctorFeedback.trim();
+                  if (!notes) return;
+                  setDoctorFollowUpHint(null);
+                  setDoctorFollowUpBusy(true);
+                  try {
+                    const text = buildAutoDoctorFollowUpMessage(notes);
+                    const res = await fetch("/api/chat/plain/message", {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        assistantId: "doctor",
+                        text,
+                      }),
+                    });
+                    const j = (await res.json()) as {
+                      success?: boolean;
+                      error?: string;
+                    };
+                    if (!res.ok || !j.success) {
+                      setDoctorFollowUpHint(
+                        j.error ?? "Could not open chat. Try again."
+                      );
+                      return;
+                    }
+                    router.push("/dashboard/chat?assistant=doctor");
+                  } catch {
+                    setDoctorFollowUpHint("Network error. Try again.");
+                  } finally {
+                    setDoctorFollowUpBusy(false);
+                  }
+                })();
+              }}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {doctorFollowUpBusy ? (
+                <>
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  Opening chat…
+                </>
+              ) : (
+                <>
+                  Have a question? Open doctor chat
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </>
+              )}
+            </button>
+            {doctorFollowUpHint ? (
+              <p className="mt-2 text-xs text-red-600">{doctorFollowUpHint}</p>
+            ) : null}
+          </>
         ) : onboardingComplete ? (
           <p className="text-sm text-zinc-500">No written visit notes yet.</p>
         ) : (
