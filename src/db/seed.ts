@@ -11,7 +11,7 @@ import {
   DEFAULT_PRIORITY_REMINDERS,
   getDefaultScheduleEvents,
 } from "../lib/defaultSchedulesData";
-import { db } from "./index";
+import { db } from "./client";
 import {
   users,
   skinScans,
@@ -29,7 +29,7 @@ async function seed() {
 
   try {
     const patientHash = await bcrypt.hash(DEMO_PATIENT_PASSWORD, 10);
-    const doctorHash = await bcrypt.hash("DocDemo2024!", 10);
+    const doctorHash = await bcrypt.hash("12345678", 10);
 
     // 1. Ensure demo users exist (safe to run multiple times)
     await db

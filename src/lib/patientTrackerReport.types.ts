@@ -24,6 +24,11 @@ export type PatientTrackerParamRow = {
   weeklyDeltaMeaningful: boolean;
 };
 
+export type KaiOnboardingClinical = {
+  flags: string[];
+  notes: string[];
+};
+
 export type PatientTrackerReport = {
   hookSentence: string;
   scores: {
@@ -40,4 +45,6 @@ export type PatientTrackerReport = {
     showAppointmentPrep: boolean;
     appointmentWithin7Days: boolean;
   };
+  /** Questionnaire-derived flags/notes for kAI report (chronic, sensitivity, triggers, sleep). */
+  onboardingClinical?: KaiOnboardingClinical | null;
 };

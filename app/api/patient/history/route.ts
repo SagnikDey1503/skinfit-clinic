@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/src/db";
-import { scans, users, visitNotes } from "@/src/db/schema";
+import {
+  doctorFeedbackVoiceNotes,
+  scans,
+  users,
+  visitNotes,
+} from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
 import { displayUserPhone } from "@/src/lib/auth/phone";
 import { ymdFromDateOnly } from "@/src/lib/date-only";
@@ -39,7 +44,7 @@ export async function GET(request: Request) {
     primaryGoal: user.primaryGoal,
   };
 
-  const [scansList, visitsList] = await Promise.all([
+  const [scansList, visitsList, reportVoiceRows] = await Promise.all([
     db.query.scans.findMany({
       where: eq(scans.userId, user.id),
       columns: {
@@ -66,6 +71,23 @@ export async function GET(request: Request) {
       },
       orderBy: [desc(visitNotes.visitDate)],
     }),
+    db
+      .select({
+        id: doctorFeedbackVoiceNotes.id,
+        scanId: doctorFeedbackVoiceNotes.scanId,
+        scanName: scans.scanName,
+        audioDataUri: doctorFeedbackVoiceNotes.audioDataUri,
+        createdAt: doctorFeedbackVoiceNotes.createdAt,
+      })
+      .from(doctorFeedbackVoiceNotes)
+      .innerJoin(scans, eq(doctorFeedbackVoiceNotes.scanId, scans.id))
+      .where(
+        and(
+          eq(doctorFeedbackVoiceNotes.userId, user.id),
+          eq(scans.userId, user.id)
+        )
+      )
+      .orderBy(desc(doctorFeedbackVoiceNotes.createdAt)),
   ]);
 
   const scanRecords = scansList.map((s) => {
@@ -96,5 +118,18 @@ export async function GET(request: Request) {
     notes: v.notes,
   }));
 
-  return NextResponse.json({ patient, scans: scanRecords, visitNotes: visitRecords });
+  const reportVoiceNotes = reportVoiceRows.map((r) => ({
+    id: r.id,
+    scanId: r.scanId!,
+    scanLabel: r.scanName?.trim() || "Report",
+    audioDataUri: r.audioDataUri,
+    createdAt: r.createdAt.toISOString(),
+  }));
+
+  return NextResponse.json({
+    patient,
+    scans: scanRecords,
+    visitNotes: visitRecords,
+    reportVoiceNotes,
+  });
 }

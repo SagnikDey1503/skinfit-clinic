@@ -7,6 +7,9 @@ import { Sun, Moon, SunMoon, ChevronsUp } from "lucide-react";
 import { normalizeRoutineSteps, routineStepsProgress } from "@/src/lib/routine";
 import { analysisResultsToParams } from "@/src/lib/skinScanAnalysis";
 import {
+  CLINIC_SUPPORT_INBOX_REFRESH_EVENT,
+} from "@/src/lib/clinicSupportInboxClient";
+import {
   DashboardDayQuestBanner,
   DashboardSectionCountdown,
 } from "./DashboardDayQuest";
@@ -41,6 +44,12 @@ export type SkinScanHistoryItem = {
   analysisResults: unknown;
 };
 
+type DoctorVoiceNote = {
+  id: string;
+  audioDataUri: string;
+  createdAt: string;
+} | null;
+
 interface DashboardViewProps {
   skinScanHistory: SkinScanHistoryItem[];
   todayLog: TodayJournalLog;
@@ -49,6 +58,9 @@ interface DashboardViewProps {
   routineScore?: number;
   weeklyChangePercent?: number;
   doctorFeedback?: string | null;
+  doctorVoiceNote?: DoctorVoiceNote;
+  doctorVoiceNoteIsNew?: boolean;
+  onboardingComplete?: boolean;
 }
 
 const DONUT = 104;
@@ -150,6 +162,9 @@ export function DashboardView({
   routineScore = 80,
   weeklyChangePercent = 5,
   doctorFeedback = "",
+  doctorVoiceNote = null,
+  doctorVoiceNoteIsNew = false,
+  onboardingComplete = true,
 }: DashboardViewProps) {
   const router = useRouter();
   const displayDate = format(new Date(), "dd/MM/yy");
@@ -570,24 +585,64 @@ export function DashboardView({
         </div>
       </section>
 
-      {/* Doctor's Feedback */}
+      {/* Doctor's Feedback + voice note */}
       <section
-        className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
+        id="doctor-feedback"
+        className="scroll-mt-24 rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-6"
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-zinc-900">Doctor&apos;s Feedback</h2>
-          <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
+          <div className="flex items-center gap-2">
+            {doctorVoiceNoteIsNew ? (
+              <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-800">
+                New
+              </span>
+            ) : null}
+            <span className="text-sm font-medium text-zinc-500">{displayDate}</span>
+          </div>
         </div>
+
+        {doctorVoiceNote ? (
+          <div className="mb-4 rounded-[18px] border border-sky-100 bg-sky-50/80 px-4 py-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-800">
+              Voice note from your doctor
+            </p>
+            <audio
+              controls
+              src={doctorVoiceNote.audioDataUri}
+              className="h-10 w-full max-w-md"
+              onPlay={() => {
+                void (async () => {
+                  try {
+                    await fetch("/api/patient/doctor-feedback/viewed", {
+                      method: "POST",
+                      credentials: "include",
+                    });
+                    window.dispatchEvent(
+                      new Event(CLINIC_SUPPORT_INBOX_REFRESH_EVENT)
+                    );
+                    router.refresh();
+                  } catch {
+                    /* ignore */
+                  }
+                })();
+              }}
+            />
+          </div>
+        ) : !onboardingComplete ? (
+          <div className="mb-4 rounded-[18px] border border-dashed border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-950">
+            Your doctor will send a voice note after reviewing your baseline. We&apos;ll
+            notify you with the bell when it arrives.
+          </div>
+        ) : null}
+
         {doctorFeedback?.trim() ? (
-          <div className="min-h-[140px] rounded-[18px] border border-zinc-100 bg-zinc-50/80 px-4 py-3 text-sm leading-relaxed text-zinc-700">
+          <div className="min-h-[100px] rounded-[18px] border border-zinc-100 bg-zinc-50/80 px-4 py-3 text-sm leading-relaxed text-zinc-700">
             {doctorFeedback}
           </div>
-        ) : (
-          <div
-            className="min-h-[140px] rounded-[18px] border border-dashed border-zinc-200/90 bg-white"
-            aria-label="No feedback yet"
-          />
-        )}
+        ) : onboardingComplete ? (
+          <p className="text-sm text-zinc-500">No written visit notes yet.</p>
+        ) : null}
       </section>
     </div>
   );

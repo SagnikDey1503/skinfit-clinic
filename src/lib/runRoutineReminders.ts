@@ -44,7 +44,9 @@ export async function runRoutineReminders(): Promise<{
       routinePmReminderLastSentYmd: users.routinePmReminderLastSentYmd,
     })
     .from(users)
-    .where(eq(users.role, "patient"));
+    .where(
+      and(eq(users.role, "patient"), eq(users.onboardingComplete, true))
+    );
 
   let sent = 0;
   let errors = 0;

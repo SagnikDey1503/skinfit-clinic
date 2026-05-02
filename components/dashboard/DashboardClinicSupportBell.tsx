@@ -76,10 +76,10 @@ export function DashboardClinicSupportBell() {
 
   const label =
     count >= 100
-      ? "Many new clinic chat messages"
+      ? "Many new alerts (chat or doctor voice)"
       : count > 0
-        ? `${count} new message${count === 1 ? "" : "s"} from Clinic Support or Dr. Ruby`
-        : "Clinic chat messages";
+        ? `${count} new — clinic chat, doctor messages, or voice notes`
+        : "Notifications — chat and doctor voice notes";
 
   return (
     <Link

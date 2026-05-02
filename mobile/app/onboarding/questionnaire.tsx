@@ -47,6 +47,24 @@ const TRIGGERS: { id: string; label: string }[] = [
   { id: "unsure", label: "I'm not sure" },
 ];
 
+function questionnaireProgress(
+  step: number,
+  priorTx: "yes" | "no" | null
+): { displayStep: number; totalSteps: number } {
+  if (priorTx === "yes") {
+    return { displayStep: step + 1, totalSteps: 10 };
+  }
+  if (priorTx === "no") {
+    const order = [0, 1, 2, 3, 4, 6, 7, 8];
+    const ix = order.indexOf(step);
+    return {
+      displayStep: ix >= 0 ? ix + 1 : step + 1,
+      totalSteps: 9,
+    };
+  }
+  return { displayStep: step + 1, totalSteps: 10 };
+}
+
 function copyForConcern(
   concern: Concern | null,
   q: "sevTitle" | "sevA" | "sevB" | "sevC" | "durTitle" | "trigTitle"
@@ -272,7 +290,7 @@ export default function QuestionnaireScreen() {
     sun,
   ]);
 
-  const totalQs = priorTx === "no" ? 8 : 9;
+  const { displayStep, totalSteps } = questionnaireProgress(step, priorTx);
 
   async function submit() {
     if (!token || !concern || !severity || !duration || !sensitivity || !sleep || !water || !diet || !sun || !priorTx) return;
@@ -332,7 +350,7 @@ export default function QuestionnaireScreen() {
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.progress}>
-        Step {step + 1} / {totalQs}
+        Step {displayStep} / {totalSteps}
       </Text>
       {err ? <Text style={styles.err}>{err}</Text> : null}
 
@@ -353,12 +371,16 @@ export default function QuestionnaireScreen() {
 
       {step === 1 ? (
         <>
-          <Text style={styles.q}>{copyForConcern(concern, "sevTitle")}</Text>
+          <Text style={styles.q}>
+            {concern
+              ? copyForConcern(concern, "sevTitle")
+              : "How would you rate severity for your main concern?"}
+          </Text>
           {(
             [
-              ["mild", copyForConcern(concern, "sevA")],
-              ["moderate", copyForConcern(concern, "sevB")],
-              ["severe", copyForConcern(concern, "sevC")],
+              ["mild", copyForConcern(concern ?? "general", "sevA")],
+              ["moderate", copyForConcern(concern ?? "general", "sevB")],
+              ["severe", copyForConcern(concern ?? "general", "sevC")],
             ] as const
           ).map(([id, label]) => (
             <Pressable
@@ -390,6 +412,11 @@ export default function QuestionnaireScreen() {
               <Text style={[styles.chipText, duration === id && styles.chipTextOn]}>{label}</Text>
             </Pressable>
           ))}
+          {duration === "chronic" ? (
+            <Text style={styles.hintWarn}>
+              Chronic concern flags your kAI report and alerts your clinician.
+            </Text>
+          ) : null}
         </>
       ) : null}
 
@@ -408,6 +435,11 @@ export default function QuestionnaireScreen() {
               </Text>
             </Pressable>
           ))}
+          {triggers.includes("unsure") ? (
+            <Text style={styles.hint}>
+              kAI will identify patterns from journal data.
+            </Text>
+          ) : null}
         </>
       ) : null}
 
@@ -442,6 +474,9 @@ export default function QuestionnaireScreen() {
             onChangeText={setTxText}
             multiline
           />
+          {txText.trim().length > 0 && txText.trim().length < 10 ? (
+            <Text style={styles.hintWarn}>Add a little more detail (at least 10 characters).</Text>
+          ) : null}
           <Text style={styles.sub2}>Duration tag</Text>
           {(
             [
@@ -481,6 +516,12 @@ export default function QuestionnaireScreen() {
               <Text style={[styles.chipText, sensitivity === id && styles.chipTextOn]}>{label}</Text>
             </Pressable>
           ))}
+          {sensitivity === "high" ? (
+            <Text style={styles.hintWarn}>
+              High sensitivity flags your kAI report; your clinician is alerted to review product
+              prescriptions.
+            </Text>
+          ) : null}
         </>
       ) : null}
 
@@ -503,6 +544,12 @@ export default function QuestionnaireScreen() {
               <Text style={[styles.chipText, sleep === id && styles.chipTextOn]}>{label}</Text>
             </Pressable>
           ))}
+          {sleep === "under5" ? (
+            <Text style={styles.hint}>
+              Poor sleep is linked to elevated cortisol and skin inflammation — included in your
+              kAI report.
+            </Text>
+          ) : null}
         </>
       ) : null}
 
@@ -604,6 +651,18 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: "#ccfbf1", borderColor: TEAL },
   chipText: { fontSize: 15, color: "#27272a", fontWeight: "600" },
   chipTextOn: { color: "#0f766e" },
+  hint: {
+    fontSize: 13,
+    color: "#52525b",
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  hintWarn: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#92400e",
+    marginTop: 8,
+  },
   input: {
     minHeight: 100,
     borderWidth: StyleSheet.hairlineWidth,

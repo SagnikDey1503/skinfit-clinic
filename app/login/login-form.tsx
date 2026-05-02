@@ -450,7 +450,11 @@ export function LoginForm() {
           </p>
 
           <p className="mt-4 text-center text-xs text-slate-400">
-            Need help?{" "}
+            Clinic staff?{" "}
+            <Link href="/doctor/login" className="text-teal-600 hover:text-teal-700">
+              Doctor portal
+            </Link>
+            {" · "}Need help?{" "}
             <Link href="/contact" className="text-teal-600 hover:text-teal-700">
               Contact us
             </Link>

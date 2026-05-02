@@ -4,6 +4,7 @@ import {
   countUnreadClinicMessagesForAssistant,
   parseInboxSinceParams,
 } from "@/src/lib/chatInboxUnread";
+import { countUnreadVoiceNotesForPatient } from "@/src/lib/voiceNoteInboxUnread";
 
 const MAX_BADGE = 99;
 
@@ -14,7 +15,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const { supportSince, doctorSince } = parseInboxSinceParams(url);
 
-  const [supportRaw, doctorRaw] = await Promise.all([
+  const [supportRaw, doctorRaw, voiceNoteCount] = await Promise.all([
     countUnreadClinicMessagesForAssistant({
       userId,
       assistantId: "support",
@@ -25,19 +26,23 @@ export async function GET(req: Request) {
       assistantId: "doctor",
       since: doctorSince,
     }),
+    countUnreadVoiceNotesForPatient(userId),
   ]);
 
   const supportCount = Math.min(supportRaw, MAX_BADGE);
   const doctorCount = Math.min(doctorRaw, MAX_BADGE);
-  const total = Math.min(supportRaw + doctorRaw, MAX_BADGE);
+  const voiceCount = Math.min(voiceNoteCount, MAX_BADGE);
+  const chatTotal = supportRaw + doctorRaw;
+  const total = Math.min(chatTotal + voiceNoteCount, MAX_BADGE);
 
   return NextResponse.json({
     success: true,
     supportCount,
     doctorCount,
+    voiceNoteCount: voiceCount,
     total,
     supportHasMore: supportRaw > MAX_BADGE,
     doctorHasMore: doctorRaw > MAX_BADGE,
-    hasMore: supportRaw + doctorRaw > MAX_BADGE,
+    hasMore: chatTotal + voiceNoteCount > MAX_BADGE,
   });
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
@@ -458,6 +459,16 @@ export default function ClinicDevPage() {
             </select>
           </label>
         </header>
+
+        <p className="mb-4 text-sm text-slate-600">
+          <Link
+            href="/doctor/login"
+            className="font-semibold text-teal-700 underline-offset-2 hover:underline"
+          >
+            Doctor portal
+          </Link>{" "}
+          — patients, SOS filter, scans, and voice notes (sign in as clinic staff).
+        </p>
 
         {error ? (
           <div

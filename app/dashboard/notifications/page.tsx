@@ -13,6 +13,7 @@ export default function DashboardNotificationsPage() {
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [supportCount, setSupportCount] = useState(0);
   const [doctorCount, setDoctorCount] = useState(0);
+  const [voiceNoteCount, setVoiceNoteCount] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -28,11 +29,13 @@ export default function DashboardNotificationsPage() {
         total?: number;
         supportCount?: number;
         doctorCount?: number;
+        voiceNoteCount?: number;
       };
       if (!res.ok || !data.success) {
         setUnreadTotal(0);
         setSupportCount(0);
         setDoctorCount(0);
+        setVoiceNoteCount(0);
         return;
       }
       setUnreadTotal(typeof data.total === "number" ? data.total : 0);
@@ -42,10 +45,14 @@ export default function DashboardNotificationsPage() {
       setDoctorCount(
         typeof data.doctorCount === "number" ? data.doctorCount : 0
       );
+      setVoiceNoteCount(
+        typeof data.voiceNoteCount === "number" ? data.voiceNoteCount : 0
+      );
     } catch {
       setUnreadTotal(0);
       setSupportCount(0);
       setDoctorCount(0);
+      setVoiceNoteCount(0);
     } finally {
       setLoading(false);
     }
@@ -84,16 +91,40 @@ export default function DashboardNotificationsPage() {
                   ? "No unread messages from Support or your doctor."
                   : `${unreadTotal} unread from the care team.`}
               </p>
-              {(supportCount > 0 || doctorCount > 0) && (
+              {(supportCount > 0 || doctorCount > 0 || voiceNoteCount > 0) && (
                 <p className="mt-2 text-xs font-semibold text-teal-700">
                   {supportCount > 0 ? `Support: ${supportCount}` : ""}
-                  {supportCount > 0 && doctorCount > 0 ? " · " : ""}
-                  {doctorCount > 0 ? `Doctor: ${doctorCount}` : ""}
+                  {supportCount > 0 && (doctorCount > 0 || voiceNoteCount > 0)
+                    ? " · "
+                    : ""}
+                  {doctorCount > 0 ? `Doctor chat: ${doctorCount}` : ""}
+                  {doctorCount > 0 && voiceNoteCount > 0 ? " · " : ""}
+                  {voiceNoteCount > 0
+                    ? `Doctor voice: ${voiceNoteCount}`
+                    : ""}
                 </p>
               )}
             </div>
             <ChevronRight className="h-5 w-5 shrink-0 text-zinc-400" />
           </Link>
+
+          {voiceNoteCount > 0 ? (
+            <Link
+              href="/dashboard#doctor-feedback"
+              className="flex items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm transition hover:border-sky-300"
+            >
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-sky-200 text-sky-900">
+                <MessageCircle className="h-5 w-5" aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1 text-left">
+                <p className="font-bold text-sky-950">Doctor voice note</p>
+                <p className="mt-1 text-sm text-sky-900">
+                  You have a new voice note on your dashboard. Open to listen.
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 shrink-0 text-sky-600" />
+            </Link>
+          ) : null}
 
           <Link
             href="/dashboard/schedules"

@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/src/db";
 import { questionnaireAnswers, skinDnaCards, users } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
+import { notifyStaffQuestionnaireRedFlags } from "@/src/lib/questionnaireDoctorAlerts";
 
 const CONCERNS = new Set(["acne", "pigmentation", "ageing", "hair", "general"]);
 const SEVERITY = new Set(["mild", "moderate", "severe"]);
@@ -13,6 +14,13 @@ const WATER = new Set(["under1l", "1to1_5l", "1_5to2l", "2lplus"]);
 const DIET = new Set(["vegetarian", "vegan", "nonveg", "mixed"]);
 const SUN = new Set(["minimal", "low", "moderate", "high"]);
 const PRIOR_TX = new Set(["yes", "no"]);
+const PRIOR_TX_DUR = new Set([
+  "under1m",
+  "1to3m",
+  "3to6m",
+  "6to12m",
+  "over1y",
+]);
 
 export async function POST(req: Request) {
   const userId = await getSessionUserIdFromRequest(req);
@@ -21,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   const [u] = await db
-    .select({ id: users.id, role: users.role })
+    .select({ id: users.id, role: users.role, name: users.name })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -86,11 +94,11 @@ export async function POST(req: Request) {
       typeof body.treatmentHistoryDuration === "string"
         ? body.treatmentHistoryDuration.trim()
         : "";
-    if (txt.length < 10 || !dur) {
+    if (txt.length < 10 || !dur || !PRIOR_TX_DUR.has(dur)) {
       return NextResponse.json(
         {
           error: "TREATMENT_DETAIL_REQUIRED",
-          message: "Describe prior treatments (min 10 chars) and duration.",
+          message: "Describe prior treatments (min 10 chars) and select duration.",
         },
         { status: 400 }
       );
@@ -171,6 +179,28 @@ export async function POST(req: Request) {
       duration: treatmentHistoryDuration,
     };
   }
+  if (concernDuration === "chronic") {
+    audit.FLAG_CHRONIC_CONCERN = {
+      code: "chronic_duration",
+      label: "Chronic concern",
+      doctorNotified: true,
+    };
+  }
+  if (skinSensitivity === "high") {
+    audit.FLAG_HIGH_SENSITIVITY = {
+      code: "high_sensitivity",
+      label: "High sensitivity — review product prescription",
+      doctorNotified: true,
+    };
+  }
+  if (triggers.includes("unsure")) {
+    audit.NOTE_Q4_TRIGGERS_UNSURE =
+      "kAI will identify patterns from journal data";
+  }
+  if (baselineSleep === "under5") {
+    audit.NOTE_Q7_SLEEP =
+      "Poor sleep linked to elevated cortisol and skin inflammation";
+  }
 
   for (const [questionId, answer] of Object.entries(audit)) {
     await db.insert(questionnaireAnswers).values({
@@ -204,6 +234,17 @@ export async function POST(req: Request) {
       hormonalCorrelation: hormonal ? "Detected" : "Not indicated",
       revision: 1,
     });
+  }
+
+  try {
+    await notifyStaffQuestionnaireRedFlags({
+      patientId: userId,
+      patientName: u.name?.trim() || "Patient",
+      chronicConcern: concernDuration === "chronic",
+      highSensitivity: skinSensitivity === "high",
+    });
+  } catch (e) {
+    console.error("[onboarding/questionnaire] doctor alert notify failed", e);
   }
 
   return NextResponse.json({ ok: true });

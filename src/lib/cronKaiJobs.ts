@@ -1,8 +1,7 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { subDays } from "date-fns";
 import { db } from "@/src/db";
 import {
-  dailyFocus,
   monthlyReports,
   scans,
   users,
@@ -61,35 +60,12 @@ export async function runWeeklyKaiJob(): Promise<{ patientsProcessed: number }> 
   return { patientsProcessed: n };
 }
 
-/** Nightly copy for Today’s Focus (idempotent per user per day). */
+/**
+ * Daily focus is clinician-set only (doctor portal). Cron kept as a no-op so existing
+ * schedulers don’t error; we no longer auto-fill generic copy.
+ */
 export async function runDailyFocusJob(): Promise<{ upserts: number }> {
-  const today = dateOnlyFromYmd(localCalendarYmd());
-  const patients = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.role, "patient"));
-
-  let n = 0;
-  for (const p of patients) {
-    await db
-      .insert(dailyFocus)
-      .values({
-        userId: p.id,
-        focusDate: today,
-        message:
-          "Today: SPF every morning if you step out — UV adds up even on cloudy days.",
-        sourceParam: "uv_damage",
-      })
-      .onConflictDoUpdate({
-        target: [dailyFocus.userId, dailyFocus.focusDate],
-        set: {
-          message: sql`excluded.message`,
-          sourceParam: sql`excluded.source_param`,
-        },
-      });
-    n += 1;
-  }
-  return { upserts: n };
+  return { upserts: 0 };
 }
 
 /** Monthly summary row (PDF assembly can extend `payload_json` later). */

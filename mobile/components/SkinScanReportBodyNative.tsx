@@ -229,6 +229,24 @@ export function SkinScanReportBodyNative({
 
           {tracker ? (
             <>
+              {tracker.onboardingClinical &&
+              (tracker.onboardingClinical.flags.length > 0 ||
+                tracker.onboardingClinical.notes.length > 0) ? (
+                <View style={styles.ocBox}>
+                  <Text style={styles.ocKicker}>ONBOARDING — CLINICAL FLAGS / NOTES</Text>
+                  {tracker.onboardingClinical.flags.map((f) => (
+                    <Text key={f} style={styles.ocFlag}>
+                      • {f}
+                    </Text>
+                  ))}
+                  {tracker.onboardingClinical.notes.map((n) => (
+                    <Text key={n} style={styles.ocNote}>
+                      • {n}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+
               {/* 1 Hook */}
               <View style={styles.section}>
                 <Text style={styles.sectionKicker}>HOOK</Text>
@@ -521,6 +539,34 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   section: { marginTop: 22 },
+  ocBox: {
+    marginTop: 20,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(254, 243, 199, 0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.45)",
+  },
+  ocKicker: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.6,
+    color: "#92400e",
+    marginBottom: 8,
+  },
+  ocFlag: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#9f1239",
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  ocNote: {
+    fontSize: 13,
+    color: "#27272a",
+    marginTop: 6,
+    lineHeight: 18,
+  },
   sectionKicker: {
     fontSize: 10,
     fontWeight: "700",

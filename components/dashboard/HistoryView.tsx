@@ -35,6 +35,15 @@ export interface VisitNoteRecord {
   notes: string;
 }
 
+/** Voice note attached to a specific scan (report) — shown on treatment history, not the dashboard card. */
+export interface ReportVoiceNoteRecord {
+  id: string;
+  scanId: number;
+  scanLabel: string;
+  audioDataUri: string;
+  createdAt: Date | string;
+}
+
 export interface PatientInfo {
   name: string;
   email: string;
@@ -47,10 +56,16 @@ export interface PatientInfo {
 interface HistoryViewProps {
   scans: ScanRecord[];
   visitNotes: VisitNoteRecord[];
+  reportVoiceNotes: ReportVoiceNoteRecord[];
   patient: PatientInfo;
 }
 
-export function HistoryView({ scans, visitNotes, patient }: HistoryViewProps) {
+export function HistoryView({
+  scans,
+  visitNotes,
+  reportVoiceNotes,
+  patient,
+}: HistoryViewProps) {
   const router = useRouter();
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -262,49 +277,92 @@ export function HistoryView({ scans, visitNotes, patient }: HistoryViewProps) {
         </div>
       </motion.section>
 
-      {/* Visit History & Notes */}
+      {/* Audio notes (per-report) + clinic notes (written) */}
       <motion.section
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2, duration: 0.5 }}
         className={CARD}
       >
-        <h3 className="mb-4 text-lg font-bold text-zinc-900">
-          Visit History & Notes
-        </h3>
-        <div className="space-y-4">
-          {visitNotes.length > 0 ? (
-            visitNotes.map((visit) => (
-              <div
-                key={visit.id}
-                className="rounded-[18px] border border-zinc-100 bg-[#FDF9F0]/80 p-4"
-              >
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-teal-700">
-                    {format(
-                      dateOnlyFromYmd(visit.visitDateYmd),
-                      "MMM d, yyyy"
-                    )}
-                  </span>
-                  <span className="text-sm text-zinc-600">
-                    {visit.doctorName}
-                  </span>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Doctor&apos;s Notes
-                  </p>
-                  <p className="text-sm leading-relaxed text-zinc-700">
-                    {visit.notes}
-                  </p>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="py-6 text-center text-sm text-zinc-600">
-              No visit notes yet.
-            </p>
-          )}
+        <div className="space-y-8">
+          <div>
+            <h3 className="mb-4 text-lg font-bold text-zinc-900">Audio notes</h3>
+            <div className="space-y-4">
+              {reportVoiceNotes.length > 0 ? (
+                reportVoiceNotes.map((vn) => (
+                  <div
+                    key={vn.id}
+                    className="rounded-[18px] border border-zinc-100 bg-[#FDF9F0]/80 p-4"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-zinc-900">
+                        {vn.scanLabel}
+                      </span>
+                      <span className="text-xs text-zinc-500">
+                        {format(new Date(vn.createdAt), "MMM d, yyyy")}
+                      </span>
+                    </div>
+                    <audio
+                      controls
+                      preload="metadata"
+                      className="h-9 w-full max-w-md"
+                      src={vn.audioDataUri}
+                    >
+                      Your browser does not support audio.
+                    </audio>
+                    <Link
+                      href={`/dashboard/history/scans/${vn.scanId}`}
+                      className="mt-3 inline-block text-sm font-medium text-teal-600 hover:text-teal-700"
+                    >
+                      Open report
+                    </Link>
+                  </div>
+                ))
+              ) : (
+                <p className="py-4 text-center text-sm text-zinc-600">
+                  No audio notes for your reports yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="mb-4 text-lg font-bold text-zinc-900">Clinic notes</h3>
+            <div className="space-y-4">
+              {visitNotes.length > 0 ? (
+                visitNotes.map((visit) => (
+                  <div
+                    key={visit.id}
+                    className="rounded-[18px] border border-zinc-100 bg-[#FDF9F0]/80 p-4"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-teal-700">
+                        {format(
+                          dateOnlyFromYmd(visit.visitDateYmd),
+                          "MMM d, yyyy"
+                        )}
+                      </span>
+                      <span className="text-sm text-zinc-600">
+                        {visit.doctorName}
+                      </span>
+                    </div>
+                    <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Notes
+                      </p>
+                      <p className="text-sm leading-relaxed text-zinc-700">
+                        {visit.notes}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="py-4 text-center text-sm text-zinc-600">
+                  No clinic notes yet.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       </motion.section>
     </div>

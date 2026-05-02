@@ -1,3 +1,4 @@
+import { Audio } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { format, parseISO } from "date-fns";
@@ -45,6 +46,14 @@ type VisitRow = {
   notes: string;
 };
 
+type ReportVoiceRow = {
+  id: string;
+  scanId: number;
+  scanLabel: string;
+  audioDataUri: string;
+  createdAt: string;
+};
+
 type HistoryPayload = {
   patient: {
     name: string;
@@ -56,6 +65,7 @@ type HistoryPayload = {
   };
   scans: ScanRow[];
   visitNotes: VisitRow[];
+  reportVoiceNotes?: ReportVoiceRow[];
 };
 
 const CARD = {
@@ -147,6 +157,7 @@ export default function HistoryListScreen() {
   const patient = data?.patient;
   const scans = data?.scans ?? [];
   const visits = data?.visitNotes ?? [];
+  const reportVoices = data?.reportVoiceNotes ?? [];
 
   return (
     <ScrollView
@@ -271,10 +282,32 @@ export default function HistoryListScreen() {
         </View>
       )}
 
-      <Text style={[styles.sectionTitle, { marginTop: 28 }]}>Visit history & notes</Text>
-      <View style={[styles.visitSection, CARD]}>
+      <View style={[styles.visitSection, CARD, { marginTop: 28 }]}>
+        <Text style={styles.subsectionTitle}>Audio notes</Text>
+        {reportVoices.length === 0 ? (
+          <Text style={styles.empty}>No audio notes for your reports yet.</Text>
+        ) : (
+          reportVoices.map((vn) => (
+            <View key={vn.id} style={styles.visitCard}>
+              <View style={styles.visitHeader}>
+                <Text style={styles.visitDate} numberOfLines={2}>
+                  {vn.scanLabel}
+                </Text>
+                <Text style={styles.visitDoc}>
+                  {format(new Date(vn.createdAt), "MMM d, yyyy")}
+                </Text>
+              </View>
+              <HistoryAudioPlayButton uri={vn.audioDataUri} />
+              <Pressable onPress={() => router.push(`/(drawer)/history/${vn.scanId}`)}>
+                <Text style={[styles.editLink, { marginTop: 8 }]}>Open report</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+
+        <Text style={[styles.subsectionTitle, { marginTop: 24 }]}>Clinic notes</Text>
         {visits.length === 0 ? (
-          <Text style={styles.empty}>No visit notes yet.</Text>
+          <Text style={styles.empty}>No clinic notes yet.</Text>
         ) : (
           visits.map((visit) => (
             <View key={visit.id} style={styles.visitCard}>
@@ -285,7 +318,7 @@ export default function HistoryListScreen() {
                 <Text style={styles.visitDoc}>{visit.doctorName}</Text>
               </View>
               <View style={styles.visitNotesBox}>
-                <Text style={styles.visitNotesLabel}>Doctor&apos;s notes</Text>
+                <Text style={styles.visitNotesLabel}>Notes</Text>
                 <Text style={styles.visitNotesBody}>{visit.notes}</Text>
               </View>
             </View>
@@ -293,6 +326,33 @@ export default function HistoryListScreen() {
         )}
       </View>
     </ScrollView>
+  );
+}
+
+function HistoryAudioPlayButton({ uri }: { uri: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Pressable
+      style={styles.voiceBtn}
+      disabled={busy}
+      onPress={async () => {
+        setBusy(true);
+        try {
+          await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+          const { sound } = await Audio.Sound.createAsync({ uri });
+          await sound.playAsync();
+          sound.setOnPlaybackStatusUpdate((st) => {
+            if (st.isLoaded && st.didJustFinish) void sound.unloadAsync();
+          });
+        } catch {
+          /* ignore */
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <Text style={styles.voiceBtnText}>{busy ? "…" : "Play voice note"}</Text>
+    </Pressable>
   );
 }
 
@@ -376,6 +436,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#0d9488",
   },
   btnPrimaryText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  subsectionTitle: { fontSize: 16, fontWeight: "700", color: "#18181b", marginBottom: 12 },
+  voiceBtn: {
+    alignSelf: "flex-start",
+    backgroundColor: "#e0f2fe",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#7dd3fc",
+  },
+  voiceBtnText: { fontSize: 14, fontWeight: "700", color: "#0369a1" },
   visitSection: { padding: 16 },
   visitCard: {
     marginBottom: 16,

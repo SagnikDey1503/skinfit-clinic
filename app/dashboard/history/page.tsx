@@ -1,8 +1,13 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import { db } from "../../../src/db";
-import { scans, users, visitNotes } from "../../../src/db/schema";
-import { desc, eq } from "drizzle-orm";
+import {
+  doctorFeedbackVoiceNotes,
+  scans,
+  users,
+  visitNotes,
+} from "../../../src/db/schema";
+import { and, desc, eq } from "drizzle-orm";
 import { HistoryView } from "../../../components/dashboard/HistoryView";
 import { getSessionUserId } from "../../../src/lib/auth/get-session";
 import { ymdFromDateOnly } from "../../../src/lib/date-only";
@@ -37,7 +42,7 @@ export default async function HistoryPage() {
     primaryGoal: user.primaryGoal,
   };
 
-  const [scansList, visitsList] = await Promise.all([
+  const [scansList, visitsList, reportVoiceRows] = await Promise.all([
     db.query.scans.findMany({
       where: eq(scans.userId, user.id),
       columns: {
@@ -64,6 +69,23 @@ export default async function HistoryPage() {
       },
       orderBy: [desc(visitNotes.visitDate)],
     }),
+    db
+      .select({
+        id: doctorFeedbackVoiceNotes.id,
+        scanId: doctorFeedbackVoiceNotes.scanId,
+        scanName: scans.scanName,
+        audioDataUri: doctorFeedbackVoiceNotes.audioDataUri,
+        createdAt: doctorFeedbackVoiceNotes.createdAt,
+      })
+      .from(doctorFeedbackVoiceNotes)
+      .innerJoin(scans, eq(doctorFeedbackVoiceNotes.scanId, scans.id))
+      .where(
+        and(
+          eq(doctorFeedbackVoiceNotes.userId, user.id),
+          eq(scans.userId, user.id)
+        )
+      )
+      .orderBy(desc(doctorFeedbackVoiceNotes.createdAt)),
   ]);
 
   const scanRecords = scansList.map((s) => {
@@ -94,6 +116,14 @@ export default async function HistoryPage() {
     notes: v.notes,
   }));
 
+  const reportVoiceNotes = reportVoiceRows.map((r) => ({
+    id: r.id,
+    scanId: r.scanId!,
+    scanLabel: r.scanName?.trim() || "Report",
+    audioDataUri: r.audioDataUri,
+    createdAt: r.createdAt,
+  }));
+
   return (
     <div className="space-y-6">
       <h1 className="text-center text-2xl font-bold tracking-tight text-zinc-900">
@@ -102,6 +132,7 @@ export default async function HistoryPage() {
       <HistoryView
         scans={scanRecords}
         visitNotes={visitRecords}
+        reportVoiceNotes={reportVoiceNotes}
         patient={patient}
       />
     </div>

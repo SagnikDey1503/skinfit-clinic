@@ -35,6 +35,25 @@ const TRIGGERS: { id: string; label: string }[] = [
   { id: "unsure", label: "I'm not sure" },
 ];
 
+/** Visible step index / total (skips Q5b when prior treatment = no). */
+function questionnaireProgress(
+  step: number,
+  priorTx: "yes" | "no" | null
+): { displayStep: number; totalSteps: number } {
+  if (priorTx === "yes") {
+    return { displayStep: step + 1, totalSteps: 10 };
+  }
+  if (priorTx === "no") {
+    const order = [0, 1, 2, 3, 4, 6, 7, 8];
+    const ix = order.indexOf(step);
+    return {
+      displayStep: ix >= 0 ? ix + 1 : step + 1,
+      totalSteps: 9,
+    };
+  }
+  return { displayStep: step + 1, totalSteps: 10 };
+}
+
 function copyForConcern(
   concern: Concern | null,
   q: "sevTitle" | "sevA" | "sevB" | "sevC" | "durTitle" | "trigTitle"
@@ -281,7 +300,7 @@ export function OnboardingQuestionnaireForm() {
     sun,
   ]);
 
-  const totalQs = priorTx === "no" ? 8 : 9;
+  const { displayStep, totalSteps } = questionnaireProgress(step, priorTx);
 
   async function submit() {
     if (
@@ -378,7 +397,7 @@ export function OnboardingQuestionnaireForm() {
   return (
     <div className="space-y-4">
       <p className="text-xs font-bold text-teal-600">
-        Step {step + 1} / {totalQs}
+        Step {displayStep} / {totalSteps}
       </p>
       {err ? (
         <div
@@ -412,14 +431,16 @@ export function OnboardingQuestionnaireForm() {
       {step === 1 ? (
         <>
           <h2 className="text-lg font-bold text-zinc-900">
-            {copyForConcern(concern, "sevTitle")}
+            {concern
+              ? copyForConcern(concern, "sevTitle")
+              : "How would you rate severity for your main concern?"}
           </h2>
           <div className="space-y-2">
             {(
               [
-                ["mild", copyForConcern(concern, "sevA")],
-                ["moderate", copyForConcern(concern, "sevB")],
-                ["severe", copyForConcern(concern, "sevC")],
+                ["mild", copyForConcern(concern ?? "general", "sevA")],
+                ["moderate", copyForConcern(concern ?? "general", "sevB")],
+                ["severe", copyForConcern(concern ?? "general", "sevC")],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -457,6 +478,11 @@ export function OnboardingQuestionnaireForm() {
                 {label}
               </button>
             ))}
+            {duration === "chronic" ? (
+              <p className="text-sm font-medium text-rose-800">
+                Chronic concern flags your kAI report and alerts your clinician.
+              </p>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -478,6 +504,11 @@ export function OnboardingQuestionnaireForm() {
                 {t.label}
               </button>
             ))}
+            {triggers.includes("unsure") ? (
+              <p className="text-sm text-zinc-600">
+                kAI will identify patterns from journal data.
+              </p>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -518,6 +549,11 @@ export function OnboardingQuestionnaireForm() {
             value={txText}
             onChange={(e) => setTxText(e.target.value)}
           />
+          {txText.trim().length > 0 && txText.trim().length < 10 ? (
+            <p className="text-sm font-medium text-amber-800">
+              Add a little more detail (at least 10 characters).
+            </p>
+          ) : null}
           <p className="text-sm font-semibold text-zinc-600">Duration</p>
           <div className="space-y-2">
             {(
@@ -564,6 +600,12 @@ export function OnboardingQuestionnaireForm() {
                 {label}
               </button>
             ))}
+            {sensitivity === "high" ? (
+              <p className="text-sm font-medium text-rose-800">
+                High sensitivity flags your kAI report and alerts your clinician to review product
+                prescriptions.
+              </p>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -591,6 +633,12 @@ export function OnboardingQuestionnaireForm() {
                 {label}
               </button>
             ))}
+            {sleep === "under5" ? (
+              <p className="mt-2 text-sm text-zinc-600">
+                Poor sleep is linked to elevated cortisol and skin inflammation — this will appear
+                on your kAI report.
+              </p>
+            ) : null}
           </div>
         </>
       ) : null}

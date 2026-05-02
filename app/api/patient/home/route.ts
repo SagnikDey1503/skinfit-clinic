@@ -2,22 +2,12 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, gte } from "drizzle-orm";
 import { subDays } from "date-fns";
 import { db } from "@/src/db";
-import {
-  dailyFocus,
-  dailyLogs,
-  doctorFeedbackVoiceNotes,
-  scans,
-  skinScans,
-  users,
-  visitNotes,
-} from "@/src/db/schema";
+import { dailyFocus, dailyLogs, scans, skinScans, users } from "@/src/db/schema";
 import { getSessionUserIdFromRequest } from "@/src/lib/auth/get-session";
-import {
-  dateOnlyFromYmd,
-  localCalendarYmd,
-  parseYmdToDateOnly,
-} from "@/src/lib/date-only";
+import { dateOnlyFromYmd, parseYmdToDateOnly } from "@/src/lib/date-only";
+import { getPatientDoctorSection } from "@/src/lib/patientDoctorSection";
 import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "@/src/lib/routine";
+import { localYmdAndHm, normalizeIanaTimeZone } from "@/src/lib/timeZoneWallClock";
 
 function clampPct(n: number) {
   return Math.min(100, Math.max(0, Math.round(n)));
@@ -31,21 +21,36 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const dateParam = searchParams.get("date");
-  const parsed = dateParam ? parseYmdToDateOnly(dateParam) : null;
-  const todayDateOnly = parsed
-    ? parsed
-    : dateOnlyFromYmd(localCalendarYmd());
+
+  const userRow = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: {
+      streakCurrent: true,
+      streakLongest: true,
+      cycleTrackingEnabled: true,
+      onboardingComplete: true,
+      timezone: true,
+    },
+  });
+  if (!userRow) {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+
+  const tz = normalizeIanaTimeZone(userRow.timezone);
+  const todayYmdFromProfile =
+    dateParam && parseYmdToDateOnly(dateParam)
+      ? dateParam.slice(0, 10)
+      : localYmdAndHm(new Date(), tz).ymd;
+  const todayDateOnly = dateOnlyFromYmd(todayYmdFromProfile);
   const weekCut = subDays(todayDateOnly, 7);
 
   const [
     skinScanRows,
     todayLog,
-    userRow,
     lastScans,
     recentLogs,
     focusRow,
-    voiceRow,
-    visitRow,
+    doctorSection,
   ] = await Promise.all([
     db.query.skinScans.findMany({
       where: eq(skinScans.userId, userId),
@@ -62,15 +67,6 @@ export async function GET(request: Request) {
         eq(dailyLogs.userId, userId),
         eq(dailyLogs.date, todayDateOnly)
       ),
-    }),
-    db.query.users.findFirst({
-      where: eq(users.id, userId),
-      columns: {
-        streakCurrent: true,
-        streakLongest: true,
-        doctorFeedbackViewedAt: true,
-        cycleTrackingEnabled: true,
-      },
     }),
     db
       .select({
@@ -93,22 +89,7 @@ export async function GET(request: Request) {
         eq(dailyFocus.focusDate, todayDateOnly)
       ),
     }),
-    db
-      .select({
-        id: doctorFeedbackVoiceNotes.id,
-        audioDataUri: doctorFeedbackVoiceNotes.audioDataUri,
-        createdAt: doctorFeedbackVoiceNotes.createdAt,
-      })
-      .from(doctorFeedbackVoiceNotes)
-      .where(eq(doctorFeedbackVoiceNotes.userId, userId))
-      .orderBy(desc(doctorFeedbackVoiceNotes.createdAt))
-      .limit(1),
-    db
-      .select({ notes: visitNotes.notes, createdAt: visitNotes.createdAt })
-      .from(visitNotes)
-      .where(eq(visitNotes.userId, userId))
-      .orderBy(desc(visitNotes.createdAt))
-      .limit(1),
+    getPatientDoctorSection(userId),
   ]);
 
   const skinScanHistory = skinScanRows.map((r) => ({
@@ -172,21 +153,30 @@ export async function GET(request: Request) {
       (highSun >= 4 ? 14 : highSun >= 2 ? 6 : 0)
   );
 
-  const todayFocus = focusRow
-    ? { message: focusRow.message, sourceParam: focusRow.sourceParam }
-    : {
-        message:
-          "Today: finish AM + PM routine steps and log water — consistency drives your kAI trend lines.",
+  const onboardingComplete = userRow.onboardingComplete;
+  const todayFocus = !onboardingComplete
+    ? {
+        phase: "onboarding" as const,
+        message: null as string | null,
         sourceParam: null as string | null,
-      };
+      }
+    : focusRow
+      ? {
+          phase: "active" as const,
+          message: focusRow.message,
+          sourceParam: focusRow.sourceParam,
+        }
+      : {
+          phase: "awaiting_clinician" as const,
+          message: null as string | null,
+          sourceParam: null as string | null,
+        };
 
-  const vn = voiceRow[0];
-  const viewedAt = userRow?.doctorFeedbackViewedAt;
-  const doctorVoiceNoteIsNew = Boolean(
-    vn && (!viewedAt || vn.createdAt > viewedAt)
-  );
-
-  const doctorFeedback = visitRow[0]?.notes?.trim() ?? "";
+  const {
+    doctorFeedback,
+    doctorVoiceNote,
+    doctorVoiceNoteIsNew,
+  } = doctorSection;
 
   return NextResponse.json({
     skinScanHistory,
@@ -201,17 +191,14 @@ export async function GET(request: Request) {
     /** @deprecated use weeklyDeltaScore */
     weeklyChangePercent: Math.round(weeklyDeltaScore),
     doctorFeedback,
-    todayFocus,
-    streakCurrent: userRow?.streakCurrent ?? 0,
-    streakLongest: userRow?.streakLongest ?? 0,
-    cycleTrackingEnabled: userRow?.cycleTrackingEnabled ?? false,
-    doctorVoiceNote: vn
-      ? {
-          id: vn.id,
-          audioDataUri: vn.audioDataUri,
-          createdAt: vn.createdAt.toISOString(),
-        }
-      : null,
+    doctorVoiceNote,
     doctorVoiceNoteIsNew,
+    todayFocus,
+    /** Calendar date used for today’s log + focus (patient profile timezone when `date` query omitted). */
+    homeDateYmd: todayYmdFromProfile,
+    streakCurrent: userRow.streakCurrent ?? 0,
+    streakLongest: userRow.streakLongest ?? 0,
+    cycleTrackingEnabled: userRow.cycleTrackingEnabled ?? false,
+    onboardingComplete,
   });
 }

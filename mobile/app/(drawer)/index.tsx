@@ -56,7 +56,12 @@ type HomeData = {
   routineScore: number;
   weeklyChangePercent: number;
   doctorFeedback: string;
-  todayFocus: { message: string; sourceParam: string | null };
+  todayFocus: {
+    phase?: "onboarding" | "awaiting_clinician" | "active";
+    message: string | null;
+    sourceParam: string | null;
+  };
+  homeDateYmd?: string;
   streakCurrent: number;
   streakLongest: number;
   cycleTrackingEnabled: boolean;
@@ -66,6 +71,7 @@ type HomeData = {
     createdAt: string;
   } | null;
   doctorVoiceNoteIsNew: boolean;
+  onboardingComplete?: boolean;
 };
 
 const MOODS = ["Neutral", "Great", "Okay", "Low", "Stressed"] as const;
@@ -103,14 +109,9 @@ export default function DashboardScreen() {
   const loadHome = useCallback(async () => {
     if (!token) return;
     setError(null);
-    const ymd = format(new Date(), "yyyy-MM-dd");
-    const json = await apiJson<HomeData>(
-      `/api/patient/home?date=${encodeURIComponent(ymd)}`,
-      token,
-      {
-        method: "GET",
-      }
-    );
+    const json = await apiJson<HomeData>(`/api/patient/home`, token, {
+      method: "GET",
+    });
     setData({
       ...json,
       kaiSkinScore: json.kaiSkinScore ?? 0,
@@ -119,13 +120,14 @@ export default function DashboardScreen() {
       lifestyleAlignmentScore:
         json.lifestyleAlignmentScore ?? json.routineScore ?? 0,
       todayFocus: json.todayFocus ?? {
-        message:
-          "Log your routine and water today — consistency drives your kAI trends.",
+        phase: "awaiting_clinician",
+        message: null,
         sourceParam: null,
       },
       streakCurrent: json.streakCurrent ?? 0,
       streakLongest: json.streakLongest ?? 0,
       cycleTrackingEnabled: json.cycleTrackingEnabled ?? false,
+      homeDateYmd: json.homeDateYmd,
       doctorVoiceNote: json.doctorVoiceNote ?? null,
       doctorVoiceNoteIsNew: json.doctorVoiceNoteIsNew ?? false,
     });
@@ -343,7 +345,23 @@ export default function DashboardScreen() {
 
       <View style={[styles.card, styles.focusBanner]}>
         <Text style={styles.focusKicker}>TODAY&apos;S FOCUS</Text>
-        <Text style={styles.focusMessage}>{data.todayFocus.message}</Text>
+        {data.todayFocus.phase === "onboarding" ? (
+          <Text style={styles.focusMessage}>
+            Complete onboarding first — then your clinician will set daily goals here.
+          </Text>
+        ) : data.todayFocus.phase === "awaiting_clinician" ||
+          !data.todayFocus.message ? (
+          <Text style={styles.focusMessage}>
+            Your clinician will set your daily focus here after your first visit plan is ready.
+          </Text>
+        ) : (
+          <Text style={styles.focusMessage}>{data.todayFocus.message}</Text>
+        )}
+        {data.homeDateYmd ? (
+          <Text style={[styles.muted, { marginTop: 8 }]}>
+            Day: {data.homeDateYmd}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.streakRow}>
@@ -562,6 +580,11 @@ export default function DashboardScreen() {
               }
             }}
           />
+        ) : data.onboardingComplete === false ? (
+          <Text style={styles.voicePlaceholder}>
+            Your doctor will send a voice note after reviewing your baseline. The bell will
+            update when it arrives.
+          </Text>
         ) : null}
         {data.doctorFeedback?.trim() ? (
           <Text style={styles.feedback}>{data.doctorFeedback}</Text>
@@ -887,6 +910,17 @@ const styles = StyleSheet.create({
   barFg: { height: 8, borderRadius: 4, backgroundColor: TEAL },
   feedback: { marginTop: 8, fontSize: 15, color: "#3f3f46", lineHeight: 22 },
   feedbackEmpty: { minHeight: 100, borderWidth: 1, borderStyle: "dashed", borderColor: "#e4e4e7", borderRadius: 14, marginTop: 8 },
+  voicePlaceholder: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#fffbeb",
+    borderWidth: 1,
+    borderColor: "#fde68a",
+    fontSize: 14,
+    color: "#78350f",
+    lineHeight: 20,
+  },
   questCard: {
     marginTop: 16,
     borderWidth: 1,

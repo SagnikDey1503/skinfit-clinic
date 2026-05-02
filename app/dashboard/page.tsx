@@ -5,8 +5,10 @@ import { skinScans, dailyLogs, users } from "../../src/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { DashboardView } from "../../components/dashboard/DashboardView";
 import { getSessionUserId } from "../../src/lib/auth/get-session";
+import { getPatientDoctorSection } from "../../src/lib/patientDoctorSection";
 import { AM_ROUTINE_ITEMS, PM_ROUTINE_ITEMS } from "../../src/lib/routine";
-import { dateOnlyFromYmd, localCalendarYmd } from "../../src/lib/date-only";
+import { dateOnlyFromYmd } from "../../src/lib/date-only";
+import { localYmdAndHm, normalizeIanaTimeZone } from "../../src/lib/timeZoneWallClock";
 export default async function DashboardPage() {
   const userId = await getSessionUserId();
   if (!userId) {
@@ -21,8 +23,12 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const todayDateOnly = dateOnlyFromYmd(localCalendarYmd());
-  const [skinScanRows, todayLog] = await Promise.all([
+  const { ymd: todayYmd } = localYmdAndHm(
+    new Date(),
+    normalizeIanaTimeZone(user.timezone)
+  );
+  const todayDateOnly = dateOnlyFromYmd(todayYmd);
+  const [skinScanRows, todayLog, doctorSection] = await Promise.all([
     db.query.skinScans.findMany({
       where: eq(skinScans.userId, user.id),
       orderBy: [desc(skinScans.createdAt)],
@@ -39,6 +45,7 @@ export default async function DashboardPage() {
         eq(dailyLogs.date, todayDateOnly)
       ),
     }),
+    getPatientDoctorSection(user.id),
   ]);
 
   const skinScanHistory = skinScanRows.map((r) => ({
@@ -62,7 +69,10 @@ export default async function DashboardPage() {
       pmItems={pmItems}
       routineScore={routineScore}
       weeklyChangePercent={weeklyChangePercent}
-      doctorFeedback=""
+      doctorFeedback={doctorSection.doctorFeedback}
+      doctorVoiceNote={doctorSection.doctorVoiceNote}
+      doctorVoiceNoteIsNew={doctorSection.doctorVoiceNoteIsNew}
+      onboardingComplete={doctorSection.onboardingComplete}
     />
   );
 }

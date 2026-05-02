@@ -87,9 +87,41 @@ export function TrackerReportSections({
     report.causes[0]?.text ??
     "This tracker connects your latest scan to recent habits. Scores are directional guides, not a diagnosis.";
 
+  const oc = report.onboardingClinical;
+  const hasOc =
+    oc &&
+    (oc.flags.length > 0 || oc.notes.length > 0);
+
   return (
     <>
-      {/* § Hook */}
+      {hasOc && oc ? (
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.04, duration: 0.4, ease: easeOut }}
+          className="mt-8 w-full max-w-xl break-inside-avoid rounded-2xl border border-amber-200/90 bg-amber-50/80 px-4 py-4 shadow-sm"
+        >
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-900/80">
+            kAI onboarding — clinical flags &amp; notes
+          </p>
+          {oc.flags.length > 0 ? (
+            <ul className="mt-3 list-inside list-disc space-y-1.5 text-[13px] font-medium leading-snug text-rose-900">
+              {oc.flags.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+          ) : null}
+          {oc.notes.length > 0 ? (
+            <ul className="mt-3 list-inside list-disc space-y-1.5 text-[13px] leading-snug text-zinc-800">
+              {oc.notes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          ) : null}
+        </motion.section>
+      ) : null}
+
+      {/* Tracker hook */}
       <motion.section
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}

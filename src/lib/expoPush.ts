@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "@/src/db";
 import { users } from "@/src/db/schema";
 
@@ -64,6 +64,26 @@ export async function notifyPatientNewClinicChat(
   });
 }
 
+/** Patient push when a doctor posts a voice note (onboarding feedback). */
+export async function notifyPatientDoctorVoiceNote(
+  patientUserId: string
+): Promise<void> {
+  const [row] = await db
+    .select({ token: users.expoPushToken })
+    .from(users)
+    .where(eq(users.id, patientUserId))
+    .limit(1);
+  const token = row?.token?.trim();
+  if (!token) return;
+
+  await sendExpoPushNotification({
+    expoPushToken: token,
+    title: "SkinnFit — your doctor",
+    body: "New voice note from your care team. Open the app to listen.",
+    data: { type: "doctor_voice_note" },
+  });
+}
+
 /** Notify every doctor account with a registered Expo push token. */
 export async function notifyDoctorUsers(opts: {
   title: string;
@@ -73,7 +93,7 @@ export async function notifyDoctorUsers(opts: {
   const doctors = await db
     .select({ token: users.expoPushToken })
     .from(users)
-    .where(eq(users.role, "doctor"));
+    .where(inArray(users.role, ["doctor", "admin"]));
   let n = 0;
   for (const d of doctors) {
     const t = d.token?.trim();

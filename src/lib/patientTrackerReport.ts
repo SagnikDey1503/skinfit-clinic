@@ -15,6 +15,7 @@ import {
   localCalendarYmd,
   parseYmdToDateOnly,
 } from "@/src/lib/date-only";
+import { deriveKaiOnboardingClinical } from "@/src/lib/kaiOnboardingClinical";
 import { KAI_PARAMETERS, type KaiParamKey } from "@/src/lib/kaiParameters";
 import type {
   PatientTrackerParamRow,
@@ -203,10 +204,26 @@ export async function buildPatientTrackerReport(input: {
     .limit(1);
 
   const [u] = await db
-    .select({ skinType: users.skinType, primaryGoal: users.primaryGoal })
+    .select({
+      skinType: users.skinType,
+      primaryGoal: users.primaryGoal,
+      concernDuration: users.concernDuration,
+      skinSensitivity: users.skinSensitivity,
+      triggers: users.triggers,
+      baselineSleep: users.baselineSleep,
+    })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
+
+  const oc = deriveKaiOnboardingClinical({
+    concernDuration: u?.concernDuration ?? null,
+    skinSensitivity: u?.skinSensitivity ?? null,
+    triggers: u?.triggers ?? null,
+    baselineSleep: u?.baselineSleep ?? null,
+  });
+  const onboardingClinical =
+    oc.flags.length > 0 || oc.notes.length > 0 ? oc : null;
 
   const report: PatientTrackerReport = {
     hookSentence,
@@ -230,6 +247,7 @@ export async function buildPatientTrackerReport(input: {
       showAppointmentPrep: Boolean(upcoming),
       appointmentWithin7Days: Boolean(upcoming),
     },
+    onboardingClinical,
   };
 
   return { ok: true, report };
