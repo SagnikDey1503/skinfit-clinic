@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Menu, X } from "lucide-react";
+import { AlertTriangle, Bell, Loader2, Menu, X } from "lucide-react";
 import clsx from "clsx";
 
 const links = [
@@ -36,6 +36,7 @@ export function DashboardNav() {
   const [open, setOpen] = useState(false);
   const [sosBusy, setSosBusy] = useState(false);
   const [sosHint, setSosHint] = useState<string | null>(null);
+  const [scheduleBellCount, setScheduleBellCount] = useState(0);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -62,6 +63,31 @@ export function DashboardNav() {
     const t = window.setTimeout(() => setSosHint(null), 3200);
     return () => window.clearTimeout(t);
   }, [sosHint]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/patient/schedule-bell", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as { count?: number };
+        setScheduleBellCount(
+          typeof j.count === "number" && j.count > 0 ? j.count : 0
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [pathname]);
 
   const triggerSos = useCallback(async () => {
     if (sosBusy) return;
@@ -124,20 +150,33 @@ export function DashboardNav() {
         </button>
         {links.map(({ href, label }) => {
           const active = isActive(href, pathname);
+          const schedules = href === "/dashboard/schedules";
+          const bell = schedules && scheduleBellCount > 0;
           return (
             <Link
               key={href}
               href={href}
               className={clsx(
                 linkBase,
-                "px-3 py-2 lg:px-4",
+                "inline-flex items-center gap-1.5 px-3 py-2 lg:px-4",
                 active
                   ? "bg-[#E0F0ED] text-teal-700"
                   : "text-slate-600 hover:bg-slate-100 hover:text-teal-600"
               )}
               aria-current={active ? "page" : undefined}
             >
-              {label}
+              {bell ? (
+                <Bell
+                  className="h-3.5 w-3.5 shrink-0 text-teal-700"
+                  aria-hidden
+                />
+              ) : null}
+              <span>{label}</span>
+              {bell ? (
+                <span className="inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-teal-600 px-1 text-[10px] font-bold leading-none text-white">
+                  {scheduleBellCount > 9 ? "9+" : scheduleBellCount}
+                </span>
+              ) : null}
             </Link>
           );
         })}
@@ -199,6 +238,8 @@ export function DashboardNav() {
               </button>
               {links.map(({ href, label }) => {
                 const active = isActive(href, pathname);
+                const schedules = href === "/dashboard/schedules";
+                const bell = schedules && scheduleBellCount > 0;
                 return (
                   <Link
                     key={href}
@@ -206,14 +247,22 @@ export function DashboardNav() {
                     onClick={close}
                     className={clsx(
                       linkBase,
-                      "px-4 py-3.5",
+                      "inline-flex items-center gap-2 px-4 py-3.5",
                       active
                         ? "bg-[#E0F0ED] text-teal-800"
                         : "text-slate-700 hover:bg-slate-50"
                     )}
                     aria-current={active ? "page" : undefined}
                   >
-                    {label}
+                    {bell ? (
+                      <Bell className="h-4 w-4 shrink-0 text-teal-800" aria-hidden />
+                    ) : null}
+                    <span className="flex-1">{label}</span>
+                    {bell ? (
+                      <span className="inline-flex min-h-[1.25rem] min-w-[1.25rem] items-center justify-center rounded-full bg-teal-600 px-1.5 text-[11px] font-bold text-white">
+                        {scheduleBellCount > 9 ? "9+" : scheduleBellCount}
+                      </span>
+                    ) : null}
                   </Link>
                 );
               })}

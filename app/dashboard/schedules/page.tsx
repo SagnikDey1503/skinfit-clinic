@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/src/db";
 import {
   appointments,
+  patientScheduleRequests,
   priorityReminders,
   scheduleEvents,
   users,
@@ -48,12 +49,14 @@ function cmpCalendarEventRows(
   return a.title.localeCompare(b.title);
 }
 
-function initialCalendarTabFromSearch(
+function initialScheduleTabFromSearch(
   sp?: { [key: string]: string | string[] | undefined }
-): "mine" | "doctor" {
+): "treatment" | "appointments" {
   const cal = sp?.calendar;
   const s = Array.isArray(cal) ? cal[0] : cal;
-  return s === "doctor" ? "doctor" : "mine";
+  if (s === "treatment" || s === "mine") return "treatment";
+  if (s === "appointments" || s === "doctor") return "appointments";
+  return "appointments";
 }
 
 export default async function SchedulesPage({
@@ -82,7 +85,7 @@ export default async function SchedulesPage({
     );
   }
 
-  const [eventRows, bookedRows] = await Promise.all([
+  const [eventRows, bookedBase, pendingRows] = await Promise.all([
     db.query.scheduleEvents.findMany({
       where: eq(scheduleEvents.userId, userId),
       orderBy: [
@@ -102,6 +105,7 @@ export default async function SchedulesPage({
       .select({
         id: appointments.id,
         dateTime: appointments.dateTime,
+        slotEndTimeHm: appointments.slotEndTimeHm,
         type: appointments.type,
         doctorName: users.name,
         status: appointments.status,
@@ -114,7 +118,37 @@ export default async function SchedulesPage({
           inArray(appointments.status, ["scheduled", "completed"])
         )
       ),
+    db.query.patientScheduleRequests.findMany({
+      where: and(
+        eq(patientScheduleRequests.patientId, userId),
+        eq(patientScheduleRequests.status, "pending")
+      ),
+      orderBy: [desc(patientScheduleRequests.createdAt)],
+      limit: 24,
+    }),
   ]);
+
+  const apptIds = bookedBase.map((r) => r.id);
+  const crmByAppt = new Map<string, string | null>();
+  if (apptIds.length > 0) {
+    const crmLinks = await db
+      .select({
+        appointmentId: patientScheduleRequests.appointmentId,
+        msg: patientScheduleRequests.crmPatientMessage,
+      })
+      .from(patientScheduleRequests)
+      .where(inArray(patientScheduleRequests.appointmentId, apptIds));
+    for (const row of crmLinks) {
+      if (row.appointmentId && row.msg?.trim()) {
+        crmByAppt.set(row.appointmentId, row.msg.trim());
+      }
+    }
+  }
+
+  const bookedRows = bookedBase.map((r) => ({
+    ...r,
+    crmPatientMessage: crmByAppt.get(r.id) ?? null,
+  }));
 
   const fromSchedule = eventRows.map((r) => ({
     id: r.id,
@@ -127,30 +161,47 @@ export default async function SchedulesPage({
   const fromBookings = bookedRows.map((r) => {
     const { ymd, hm } = utcInstantToClinicWallYmdHm(r.dateTime);
     const isDone = r.status === "completed";
+    const baseTitle = appointmentCalendarTitle(
+      appointmentTypeLabel(r.type),
+      r.doctorName ?? ""
+    );
+    const tip = r.crmPatientMessage?.trim() ?? null;
     return {
       id: `appt:${r.id}`,
       eventDateYmd: ymd,
       eventTimeHm: hm,
-      title: appointmentCalendarTitle(
-        appointmentTypeLabel(r.type),
-        r.doctorName ?? ""
-      ),
+      eventSlotEndTimeHm: r.slotEndTimeHm ?? null,
+      title: tip
+        ? `${baseTitle} · ${tip.slice(0, 120)}${tip.length > 120 ? "…" : ""}`
+        : baseTitle,
       completed: isDone,
+      crmPatientMessage: tip,
     };
   });
 
-  const initialScheduleEvents = [...fromSchedule, ...fromBookings].sort(
-    cmpCalendarEventRows
-  );
+  const pendingScheduleRequests = pendingRows.map((r) => ({
+    id: r.id,
+    preferredDateYmd: ymdFromDateOnly(r.preferredDate),
+    issue: r.issue,
+    daysAffected: r.daysAffected,
+    timePreferences: r.timePreferences,
+    attachmentsCount: Array.isArray(r.attachments) ? r.attachments.length : 0,
+    status: r.status as string,
+  }));
 
-  const initialCalendarTab = initialCalendarTabFromSearch(searchParams);
+  const initialTreatmentEvents = [...fromSchedule].sort(cmpCalendarEventRows);
+  const initialAppointmentEvents = [...fromBookings].sort(cmpCalendarEventRows);
+
+  const initialScheduleTab = initialScheduleTabFromSearch(searchParams);
 
   return (
     <div className="space-y-6">
       <SchedulesPageClient
-        key={initialCalendarTab === "doctor" ? "sched-cal-doctor" : "sched-cal-mine"}
-        initialScheduleEvents={initialScheduleEvents}
-        initialCalendarTab={initialCalendarTab}
+        key={initialScheduleTab}
+        initialTreatmentEvents={initialTreatmentEvents}
+        initialAppointmentEvents={initialAppointmentEvents}
+        pendingScheduleRequests={pendingScheduleRequests}
+        initialScheduleTab={initialScheduleTab}
       />
     </div>
   );

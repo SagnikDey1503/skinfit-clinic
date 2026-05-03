@@ -42,6 +42,12 @@ export const appointmentRequestStatusEnum = pgEnum(
   ["pending", "approved", "cancelled"]
 );
 
+/** Patient-requested visit date (CRM confirms via sheet webhook). */
+export const patientScheduleRequestStatusEnum = pgEnum(
+  "patient_schedule_request_status",
+  ["pending", "confirmed", "cancelled", "declined"]
+);
+
 export const parameterSourceEnum = pgEnum("parameter_source", [
   "ai",
   "doctor",
@@ -153,6 +159,10 @@ export const users = pgTable("users", {
     "doctor_feedback_scan_voice_viewed_at",
     { withTimezone: true }
   ),
+  /**
+   * When patient last opened Schedules (clears “new CRM note” bell for confirmed visits).
+   */
+  scheduleCrmDigestAt: timestamp("schedule_crm_digest_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -256,8 +266,14 @@ export const appointments = pgTable("appointments", {
     .references(() => users.id, { onDelete: "restrict" }),
 
   dateTime: timestamp("date_time", { withTimezone: true }).notNull(),
+  /** Same-day end time in clinic wall clock `HH:mm`; null → clients use start + 30 minutes. */
+  slotEndTimeHm: varchar("slot_end_time", { length: 5 }),
   status: appointmentStatusEnum("status").notNull().default("scheduled"),
   type: appointmentTypeEnum("type").notNull().default("consultation"),
+
+  /** Patient message after booking (e.g. time not viable); mirrored to CRM sheet when configured. */
+  patientClinicNote: text("patient_clinic_note"),
+  patientClinicNoteAt: timestamp("patient_clinic_note_at", { withTimezone: true }),
 
   /** When the automated Clinic Support pre-visit reminder was sent (once per appointment). */
   clinicReminderSentAt: timestamp("clinic_reminder_sent_at", {
@@ -266,6 +282,50 @@ export const appointments = pgTable("appointments", {
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const patientScheduleRequests = pgTable(
+  "patient_schedule_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    doctorId: uuid("doctor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    preferredDate: date("preferred_date", { mode: "date" }).notNull(),
+    issue: text("issue").notNull().default("Skin concern"),
+    daysAffected: integer("days_affected"),
+    timePreferences: text("time_preferences").notNull(),
+    attachments: jsonb("attachments").$type<
+      Array<{ fileName: string; mimeType: string; dataUri: string }>
+    >(),
+    status: patientScheduleRequestStatusEnum("status")
+      .notNull()
+      .default("pending"),
+    externalRef: text("external_ref"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    /** Pre-visit / CRM instructions sent when confirming via sheet webhook (`patientMessage`). */
+    crmPatientMessage: text("crm_patient_message"),
+    cancelledReason: text("cancelled_reason"),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    patientIdx: index("patient_schedule_requests_patient_idx").on(table.patientId),
+    statusIdx: index("patient_schedule_requests_status_idx").on(table.status),
+    externalRefIdx: index("patient_schedule_requests_external_ref_idx").on(
+      table.externalRef
+    ),
+  })
+);
 
 // Doctor appointment slots (clinic feeds a timetable; patients request from slots)
 export const doctorSlots = pgTable(

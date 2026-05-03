@@ -64,6 +64,32 @@ export async function notifyPatientNewClinicChat(
   });
 }
 
+/** Patient push when an appointment is confirmed or cancelled via clinic / sheet sync. */
+export async function notifyPatientScheduleAppointment(
+  patientUserId: string,
+  title: string,
+  body: string
+): Promise<void> {
+  const [row] = await db
+    .select({ token: users.expoPushToken })
+    .from(users)
+    .where(eq(users.id, patientUserId))
+    .limit(1);
+  const token = row?.token?.trim();
+  if (!token) return;
+
+  const t = title.length > 56 ? `${title.slice(0, 53)}…` : title;
+  const b =
+    body.length > 140 ? `${body.slice(0, 137)}…` : body || "Schedule updated";
+
+  await sendExpoPushNotification({
+    expoPushToken: token,
+    title: t,
+    body: b,
+    data: { type: "schedule_appointment" },
+  });
+}
+
 /** Patient push when a doctor posts a voice note (general or scan/report). */
 export async function notifyPatientDoctorVoiceNote(
   patientUserId: string,

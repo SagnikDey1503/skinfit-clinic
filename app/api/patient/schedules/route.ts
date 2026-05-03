@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/src/db";
 import {
   appointments,
+  patientScheduleRequests,
   priorityReminders,
   scheduleEvents,
   users,
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const [eventRows, bookedRows] = await Promise.all([
+  const [eventRows, bookedRows, pendingRows] = await Promise.all([
     db.query.scheduleEvents.findMany({
       where: eq(scheduleEvents.userId, userId),
       orderBy: [
@@ -91,6 +92,7 @@ export async function GET(request: Request) {
       .select({
         id: appointments.id,
         dateTime: appointments.dateTime,
+        slotEndTimeHm: appointments.slotEndTimeHm,
         type: appointments.type,
         doctorName: users.name,
         status: appointments.status,
@@ -103,6 +105,14 @@ export async function GET(request: Request) {
           inArray(appointments.status, ["scheduled", "completed"])
         )
       ),
+    db.query.patientScheduleRequests.findMany({
+      where: and(
+        eq(patientScheduleRequests.patientId, userId),
+        eq(patientScheduleRequests.status, "pending")
+      ),
+      orderBy: [desc(patientScheduleRequests.createdAt)],
+      limit: 24,
+    }),
   ]);
 
   const fromSchedule = eventRows.map((r) => ({
@@ -120,6 +130,7 @@ export async function GET(request: Request) {
       id: `appt:${r.id}`,
       eventDateYmd: ymd,
       eventTimeHm: hm,
+      eventSlotEndTimeHm: r.slotEndTimeHm ?? null,
       title: appointmentCalendarTitle(
         appointmentTypeLabel(r.type),
         r.doctorName ?? ""
@@ -128,11 +139,34 @@ export async function GET(request: Request) {
     };
   });
 
-  const initialScheduleEvents = [...fromSchedule, ...fromBookings].sort(
-    cmpCalendarEventRows
-  );
+  const fromPending = pendingRows.map((r) => ({
+    id: `req:${r.id}`,
+    eventDateYmd: ymdFromDateOnly(r.preferredDate),
+    eventTimeHm: null,
+    title: `Visit request (pending) — ${r.issue}: ${r.timePreferences.slice(0, 72)}${
+      r.timePreferences.length > 72 ? "…" : ""
+    }`,
+    completed: false,
+  }));
+
+  const initialScheduleEvents = [
+    ...fromSchedule,
+    ...fromBookings,
+    ...fromPending,
+  ].sort(cmpCalendarEventRows);
 
   return NextResponse.json({
     initialScheduleEvents,
+    initialTreatmentEvents: [...fromSchedule].sort(cmpCalendarEventRows),
+    initialAppointmentEvents: [...fromBookings].sort(cmpCalendarEventRows),
+    pendingScheduleRequests: pendingRows.map((r) => ({
+      id: r.id,
+      preferredDateYmd: ymdFromDateOnly(r.preferredDate),
+      issue: r.issue,
+      daysAffected: r.daysAffected,
+      timePreferences: r.timePreferences,
+      attachmentsCount: Array.isArray(r.attachments) ? r.attachments.length : 0,
+      status: r.status,
+    })),
   });
 }
