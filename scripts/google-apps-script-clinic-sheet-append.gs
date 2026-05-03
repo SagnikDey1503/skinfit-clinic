@@ -8,9 +8,10 @@
  *    - SKINFIT_SPREADSHEET_ID = spreadsheet id (required if this script is NOT “bound” to the sheet)
  *      From URL: https://docs.google.com/spreadsheets/d/THIS_PART/edit
  *    - SKINFIT_DRIVE_FOLDER_ID = Google Drive folder ID from the folder URL (recommended)
- * 2b. If images still do not appear: Project Settings → check “Show appsscript.json manifest in editor”
- *     and merge oauthScopes from `scripts/appsscript.json` (Drive + Sheets). Save, then run
- *     testAuthorizeDrive() once and accept ALL permissions.
+ * 2b. Project Settings → check “Show appsscript.json manifest in editor” and merge oauthScopes
+ *     from `scripts/appsscript.json` (Sheets + Drive + script.scriptapp for triggers). Save,
+ *     then run testAuthorizeDrive() once and accept ALL permissions. Re-authorize after any
+ *     scope change before running createCrmSheetEditTrigger().
  *     (Names ending in _ are hidden from the Run menu in Apps Script.)
  * 3. Deploy → New deployment → Web app:
  *    - Execute as: Me
@@ -533,7 +534,12 @@ function onEditInstallable_(e) {
   }
 }
 
-/** Run once from editor: Spreadsheet → onEdit → onEditInstallable_ */
+/**
+ * Run once from editor: Spreadsheet → onEdit → onEditInstallable_
+ * Requires manifest oauth scope `https://www.googleapis.com/auth/script.scriptapp`
+ * (see repo `scripts/appsscript.json`). After merging scopes: save manifest, then
+ * Run → Review permissions → accept all, then run this again.
+ */
 function createCrmSheetEditTrigger() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) {

@@ -22,6 +22,23 @@ function isYmd(s: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
+/** Parsed JSON body from Google Apps Script sheet relay (best-effort). */
+type SheetRelayJson = {
+  ok?: unknown;
+  error?: unknown;
+  message?: unknown;
+  externalRef?: unknown;
+};
+
+function parseSheetRelayJson(text: string): SheetRelayJson | null {
+  if (!text.trim().startsWith("{")) return null;
+  try {
+    return JSON.parse(text) as SheetRelayJson;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeAttachments(
   input: unknown
 ): Array<{ fileName: string; mimeType: string; dataUri: string }> | "INVALID" {
@@ -246,23 +263,6 @@ export async function POST(req: Request) {
         sheetRelayOmittedImages = true;
       }
 
-      const parseRelayJson = (text: string) => {
-        let relayJson: {
-          ok?: unknown;
-          error?: unknown;
-          message?: unknown;
-          externalRef?: unknown;
-        } | null = null;
-        if (text.trim().startsWith("{")) {
-          try {
-            relayJson = JSON.parse(text) as typeof relayJson;
-          } catch {
-            relayJson = null;
-          }
-        }
-        return relayJson;
-      };
-
       let relayRes = await fetch(outbound.toString(), {
         method: "POST",
         headers: {
@@ -272,7 +272,7 @@ export async function POST(req: Request) {
         body: relayBodyStr,
       });
       let relayBodyText = await relayRes.text().catch(() => "");
-      let relayJson = parseRelayJson(relayBodyText);
+      let relayJson = parseSheetRelayJson(relayBodyText);
 
       if (
         !relayRes.ok &&
@@ -291,10 +291,10 @@ export async function POST(req: Request) {
           body: relayBodyStr,
         });
         relayBodyText = await relayRes.text().catch(() => "");
-        relayJson = parseRelayJson(relayBodyText);
+        relayJson = parseSheetRelayJson(relayBodyText);
       }
 
-      if (relayRes.ok && relayJson && relayJson.ok === false) {
+      if (relayRes.ok && relayJson !== null && relayJson.ok === false) {
         sheetRelayOk = false;
         const msg =
           (typeof relayJson.message === "string" && relayJson.message.trim()) ||
