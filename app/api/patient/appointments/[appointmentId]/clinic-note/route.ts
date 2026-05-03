@@ -118,7 +118,7 @@ export async function POST(
     );
   }
 
-  void notifyClinicSheetRowMirrored({
+  const mirror = await notifyClinicSheetRowMirrored({
     externalRef: linkSafe?.externalRef ?? null,
     scheduleRequestId: linkSafe?.id ?? null,
     skinfitStatus: "confirmed",
@@ -139,5 +139,10 @@ export async function POST(
     },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    sheetMirrorOk: mirror.ok && !mirror.skipped,
+    sheetMirrorSkipped: mirror.skipped,
+    sheetMirrorDetail: mirror.detail ?? null,
+  });
 }

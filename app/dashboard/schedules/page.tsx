@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/src/db";
 import {
   appointments,
@@ -67,6 +67,29 @@ export default async function SchedulesPage({
   const userId = await getSessionUserId();
   if (!userId) redirect("/login");
 
+  const [digestRow] = await db
+    .select({ digest: users.scheduleCrmDigestAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const digest = digestRow?.digest ?? new Date(0);
+  const [unreadAgg] = await db
+    .select({ n: count() })
+    .from(patientScheduleRequests)
+    .where(
+      and(
+        eq(patientScheduleRequests.patientId, userId),
+        inArray(patientScheduleRequests.status, [
+          "confirmed",
+          "cancelled",
+          "declined",
+        ]),
+        isNotNull(patientScheduleRequests.updatedAt),
+        gt(patientScheduleRequests.updatedAt, digest)
+      )
+    );
+  const initialScheduleUnreadCount = Number(unreadAgg?.n ?? 0);
+
   const anyReminder = await db
     .select({ id: priorityReminders.id })
     .from(priorityReminders)
@@ -133,22 +156,50 @@ export default async function SchedulesPage({
       ),
       orderBy: [desc(patientScheduleRequests.updatedAt)],
       limit: 24,
+      columns: {
+        id: true,
+        preferredDate: true,
+        issue: true,
+        daysAffected: true,
+        timePreferences: true,
+        attachments: true,
+        status: true,
+        cancelledReason: true,
+      },
     }),
   ]);
 
   const apptIds = bookedBase.map((r) => r.id);
   const crmByAppt = new Map<string, string | null>();
+  const cancelReasonByAppt = new Map<string, string | null>();
   if (apptIds.length > 0) {
-    const crmLinks = await db
+    const linkRows = await db
       .select({
         appointmentId: patientScheduleRequests.appointmentId,
         msg: patientScheduleRequests.crmPatientMessage,
+        cancelledReason: patientScheduleRequests.cancelledReason,
+        status: patientScheduleRequests.status,
       })
       .from(patientScheduleRequests)
-      .where(inArray(patientScheduleRequests.appointmentId, apptIds));
-    for (const row of crmLinks) {
-      if (row.appointmentId && row.msg?.trim()) {
+      .where(
+        and(
+          eq(patientScheduleRequests.patientId, userId),
+          inArray(patientScheduleRequests.appointmentId, apptIds)
+        )
+      )
+      .orderBy(desc(patientScheduleRequests.updatedAt));
+    for (const row of linkRows) {
+      if (!row.appointmentId) continue;
+      if (!crmByAppt.has(row.appointmentId) && row.msg?.trim()) {
         crmByAppt.set(row.appointmentId, row.msg.trim());
+      }
+      const cr = row.cancelledReason?.trim();
+      if (
+        cr &&
+        (row.status === "cancelled" || row.status === "declined") &&
+        !cancelReasonByAppt.has(row.appointmentId)
+      ) {
+        cancelReasonByAppt.set(row.appointmentId, cr);
       }
     }
   }
@@ -156,6 +207,7 @@ export default async function SchedulesPage({
   const bookedRows = bookedBase.map((r) => ({
     ...r,
     crmPatientMessage: crmByAppt.get(r.id) ?? null,
+    cancellationReason: cancelReasonByAppt.get(r.id) ?? null,
   }));
 
   const fromSchedule = eventRows.map((r) => ({
@@ -175,6 +227,7 @@ export default async function SchedulesPage({
       r.doctorName ?? ""
     );
     const tip = r.crmPatientMessage?.trim() ?? null;
+    const cancelNote = r.cancellationReason?.trim() ?? null;
     return {
       id: `appt:${r.id}`,
       eventDateYmd: ymd,
@@ -186,6 +239,7 @@ export default async function SchedulesPage({
       completed: isDone,
       cancelled: isCancelled,
       crmPatientMessage: tip,
+      cancellationReason: cancelNote,
     };
   });
 
@@ -206,6 +260,7 @@ export default async function SchedulesPage({
     timePreferences: r.timePreferences,
     attachmentsCount: Array.isArray(r.attachments) ? r.attachments.length : 0,
     status: r.status as string,
+    cancelledReason: r.cancelledReason ?? null,
   }));
 
   const initialTreatmentEvents = [...fromSchedule].sort(cmpCalendarEventRows);
@@ -221,6 +276,7 @@ export default async function SchedulesPage({
         initialAppointmentEvents={initialAppointmentEvents}
         pendingScheduleRequests={pendingScheduleRequests}
         closedScheduleRequests={closedScheduleRequests}
+        initialScheduleUnreadCount={initialScheduleUnreadCount}
         initialScheduleTab={initialScheduleTab}
       />
     </div>

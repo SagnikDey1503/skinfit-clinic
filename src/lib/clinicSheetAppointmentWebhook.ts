@@ -8,6 +8,7 @@ import {
 import { utcInstantToClinicWallYmdHm } from "@/src/lib/clinicSlotUtcInstant";
 import { getDefaultClinicDoctorId } from "@/src/lib/defaultClinicDoctor";
 import { notifyClinicSheetRowMirrored } from "@/src/lib/clinicSheetRowSync";
+import { sendClinicSupportMessage } from "@/src/lib/clinicSupportChat";
 import {
   notifyDoctorUsers,
   notifyPatientScheduleAppointment,
@@ -228,6 +229,14 @@ export async function applyClinicSheetAppointmentUpdates(
             "Visit time updated",
             body
           );
+          void sendClinicSupportMessage({
+            patientId,
+            text: msg
+              ? `Your appointment was updated to ${whenRange} on ${dt.toLocaleDateString()}.\n\nClinic note: ${msg}`
+              : `Your appointment was updated to ${whenRange} on ${dt.toLocaleDateString()}.`,
+          }).catch((err) =>
+            console.warn("[clinicSheetAppointmentWebhook] chat notice failed", err)
+          );
           void notifyDoctorUsers({
             title: "Appointment updated from CRM sheet",
             body: `${whenRange} · patient ${patientId}`,
@@ -278,6 +287,14 @@ export async function applyClinicSheetAppointmentUpdates(
           ? `Your appointment is set for ${whenRange} on ${dt.toLocaleDateString()}. ${msg}`
           : `Your appointment is set for ${whenRange} on ${dt.toLocaleDateString()}. Open Schedules for details.`;
         void notifyPatientScheduleAppointment(patientId, "Visit confirmed", body);
+        void sendClinicSupportMessage({
+          patientId,
+          text: msg
+            ? `Your appointment is confirmed for ${whenRange} on ${dt.toLocaleDateString()}.\n\nClinic note: ${msg}`
+            : `Your appointment is confirmed for ${whenRange} on ${dt.toLocaleDateString()}.`,
+        }).catch((err) =>
+          console.warn("[clinicSheetAppointmentWebhook] chat notice failed", err)
+        );
         void notifyDoctorUsers({
           title: "Appointment confirmed in CRM",
           body: `${whenRange} · patient ${patientId}`,
@@ -328,6 +345,19 @@ export async function applyClinicSheetAppointmentUpdates(
           patientId,
           u.action === "decline" ? "Visit request update" : "Visit cancelled",
           notifyBody
+        );
+        const cancelHeadline =
+          u.action === "decline"
+            ? "Your visit request was declined by the clinic."
+            : "Your appointment was cancelled by the clinic.";
+        const chatText = combinedReason
+          ? `${cancelHeadline}\n\nReason: ${combinedReason}`
+          : cancelHeadline;
+        void sendClinicSupportMessage({
+          patientId,
+          text: chatText,
+        }).catch((err) =>
+          console.warn("[clinicSheetAppointmentWebhook] chat notice failed", err)
         );
         void notifyDoctorUsers({
           title: u.action === "decline" ? "Visit request declined in CRM" : "Appointment cancelled in CRM",

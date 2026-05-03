@@ -44,6 +44,8 @@ export type ScheduleEventRow = {
   attachmentsCount?: number;
   /** Confirmed bookings: CRM / prep note from sheet webhook (`patientMessage`). */
   crmPatientMessage?: string | null;
+  /** Cancel / decline reason from CRM (`cancelledReason` + optional patient message). */
+  cancellationReason?: string | null;
 };
 
 export type PendingScheduleRequestRow = {
@@ -54,6 +56,7 @@ export type PendingScheduleRequestRow = {
   timePreferences: string;
   attachmentsCount?: number;
   status: string;
+  cancelledReason?: string | null;
 };
 
 type ScheduleTab = "treatment" | "appointments";
@@ -280,12 +283,14 @@ export default function SchedulesPageClient({
   initialAppointmentEvents,
   pendingScheduleRequests,
   closedScheduleRequests,
+  initialScheduleUnreadCount = 0,
   initialScheduleTab = "appointments",
 }: {
   initialTreatmentEvents: ScheduleEventRow[];
   initialAppointmentEvents: ScheduleEventRow[];
   pendingScheduleRequests: PendingScheduleRequestRow[];
   closedScheduleRequests: PendingScheduleRequestRow[];
+  initialScheduleUnreadCount?: number;
   initialScheduleTab?: ScheduleTab;
 }) {
   const router = useRouter();
@@ -356,6 +361,7 @@ export default function SchedulesPageClient({
     const closed = closedScheduleRequests.map((r) => {
       const declined = String(r.status || "").toLowerCase() === "declined";
       const label = declined ? "Declined request" : "Cancelled";
+      const reason = r.cancelledReason?.trim() || null;
       return {
         id: `reqclosed:${r.id}`,
         eventDateYmd: r.preferredDateYmd,
@@ -365,6 +371,7 @@ export default function SchedulesPageClient({
         }`,
         completed: false,
         cancelled: true,
+        cancellationReason: reason,
       } satisfies ScheduleEventRow;
     });
     return [
@@ -572,6 +579,18 @@ export default function SchedulesPageClient({
           >
             Dismiss
           </button>
+        </div>
+      ) : null}
+
+      {initialScheduleUnreadCount > 0 ? (
+        <div className="mx-auto max-w-lg rounded-xl border border-teal-200 bg-teal-50/90 px-4 py-3 text-sm text-teal-950 shadow-sm">
+          <p className="font-semibold">You have schedule updates to review</p>
+          <p className="mt-1 text-teal-900/90">
+            {initialScheduleUnreadCount} update
+            {initialScheduleUnreadCount === 1 ? "" : "s"} since you last cleared this list
+            (confirmations, cancellations, or clinic messages). Scroll the calendar below — leaving
+            this page marks them as seen.
+          </p>
         </div>
       ) : null}
 
@@ -798,6 +817,12 @@ export default function SchedulesPageClient({
                             {event.crmPatientMessage.trim()}
                           </p>
                         ) : null}
+                        {cancelled && event.cancellationReason?.trim() ? (
+                          <p className="mt-0.5 line-clamp-3 text-[9px] leading-snug text-rose-900">
+                            <span className="font-semibold">Reason: </span>
+                            {event.cancellationReason.trim()}
+                          </p>
+                        ) : null}
                         {pending ? (
                           <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-900/90">
                             Pending
@@ -814,7 +839,7 @@ export default function SchedulesPageClient({
                             {event.attachmentsCount !== 1 ? "s" : ""} · list below
                           </p>
                         ) : null}
-                        {!pending && !done ? (
+                        {!pending && !done && !cancelled ? (
                           <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-900/90">
                             Confirmed
                           </p>
@@ -914,6 +939,12 @@ export default function SchedulesPageClient({
                             {event.crmPatientMessage.trim()}
                           </p>
                         ) : null}
+                        {cancelled && event.cancellationReason?.trim() ? (
+                          <p className="text-xs leading-snug text-rose-900">
+                            <span className="font-semibold">Reason: </span>
+                            {event.cancellationReason.trim()}
+                          </p>
+                        ) : null}
                       </div>
                       {pending ? (
                         <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-950">
@@ -930,7 +961,7 @@ export default function SchedulesPageClient({
                           Completed
                         </span>
                       ) : null}
-                      {!pending && !event.completed ? (
+                      {!pending && !event.completed && !cancelled ? (
                         <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-950">
                           Confirmed
                         </span>
@@ -1045,6 +1076,9 @@ export default function SchedulesPageClient({
                     );
                     const j = (await res.json().catch(() => ({}))) as {
                       error?: string;
+                      sheetMirrorOk?: boolean;
+                      sheetMirrorSkipped?: boolean;
+                      sheetMirrorDetail?: string | null;
                     };
                     if (!res.ok) {
                       setClinicMsgErr(
@@ -1055,6 +1089,13 @@ export default function SchedulesPageClient({
                             : "Could not send. Try again."
                       );
                       return;
+                    }
+                    if (j.sheetMirrorOk === false) {
+                      setSheetRelayNotice(
+                        j.sheetMirrorSkipped
+                          ? "Your message was saved in Skinfit, but the Google Sheet was not updated (missing schedule row link or webhook URL). The clinic may not see it on the sheet until that is fixed."
+                          : "Your message was saved in Skinfit, but the Google Sheet sync failed. Check Render logs for [clinicSheetRowSync] and your Apps Script / CLINIC_SHEET_SYNC_WEBHOOK_URL."
+                      );
                     }
                     setClinicMsgOpen(false);
                     setClinicMsgApptId(null);

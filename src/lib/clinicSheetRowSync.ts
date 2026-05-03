@@ -1,9 +1,57 @@
 /**
+ * Google Apps Script `/exec` often returns **302** to `script.googleusercontent.com`.
+ * Default `fetch` follow can turn POST into GET and the script never runs — mirror silently fails.
+ * We re-POST to each `Location` until a non-3xx response.
+ */
+async function postGoogleAppsScriptJson(
+  startUrl: string,
+  secret: string,
+  jsonBody: string
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-skinfit-sheet-secret": secret,
+  };
+  let url = startUrl;
+  for (let hop = 0; hop < 8; hop++) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: jsonBody,
+      redirect: "manual",
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) return res;
+      url = new URL(loc, url).href;
+      continue;
+    }
+    return res;
+  }
+  return await fetch(url, {
+    method: "POST",
+    headers,
+    body: jsonBody,
+    redirect: "manual",
+  });
+}
+
+export type ClinicSheetMirrorResult = {
+  ok: boolean;
+  /** True when URL/secret/row ref missing — nothing was sent. */
+  skipped: boolean;
+  httpStatus?: number;
+  detail?: string;
+};
+
+/**
  * Optional mirror write-back to Google Sheet after Skinfit processes CRM webhook.
  * Deploy the same Apps Script web app with `kind: "skinfit_row_sync"` handler, then set on Render:
  *   CLINIC_SHEET_SYNC_WEBHOOK_URL=https://script.google.com/macros/s/.../exec?secret=...
  * (same secret as `CLINIC_SHEET_WEBHOOK_SECRET`). Without this URL, column **status** stays `pending`
  * after confirm because only Skinfit DB updates — the sheet never receives the write-back.
+ *
+ * If `CLINIC_SHEET_SYNC_WEBHOOK_URL` is unset, falls back to `CLINIC_SHEET_REQUEST_WEBHOOK_URL` (same `doPost` handler).
  */
 export async function notifyClinicSheetRowMirrored(opts: {
   externalRef: string | null | undefined;
@@ -16,18 +64,28 @@ export async function notifyClinicSheetRowMirrored(opts: {
   confirmedSlotEndTimeHm?: string | null;
   patientClinicNote?: string | null;
   patientClinicNoteAt?: string | null;
-}): Promise<void> {
-  const urlRaw = process.env.CLINIC_SHEET_SYNC_WEBHOOK_URL?.trim();
+}): Promise<ClinicSheetMirrorResult> {
+  const urlRaw =
+    process.env.CLINIC_SHEET_SYNC_WEBHOOK_URL?.trim() ||
+    process.env.CLINIC_SHEET_REQUEST_WEBHOOK_URL?.trim();
   const secret = process.env.CLINIC_SHEET_WEBHOOK_SECRET?.trim();
   const ref = opts.externalRef?.trim();
   const schedId = opts.scheduleRequestId?.trim();
   if (!urlRaw || !secret || (!ref && !schedId)) {
     if (!urlRaw && (ref || schedId)) {
       console.warn(
-        "[clinicSheetRowSync] skipped: set CLINIC_SHEET_SYNC_WEBHOOK_URL so the sheet status column can update after confirm/cancel"
+        "[clinicSheetRowSync] skipped: set CLINIC_SHEET_SYNC_WEBHOOK_URL (or CLINIC_SHEET_REQUEST_WEBHOOK_URL) so the sheet can update after confirm/cancel"
       );
     }
-    return;
+    return {
+      ok: false,
+      skipped: true,
+      detail: !urlRaw
+        ? "missing_webhook_url"
+        : !secret
+          ? "missing_webhook_secret"
+          : "missing_external_ref_and_schedule_request_id",
+    };
   }
 
   try {
@@ -35,33 +93,36 @@ export async function notifyClinicSheetRowMirrored(opts: {
     if (!outbound.searchParams.get("secret")) {
       outbound.searchParams.set("secret", secret);
     }
-    const res = await fetch(outbound.toString(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-skinfit-sheet-secret": secret,
-      },
-      body: JSON.stringify({
-        kind: "skinfit_row_sync",
-        externalRef: ref || null,
-        scheduleRequestId: schedId || null,
-        skinfitStatus: opts.skinfitStatus,
-        confirmedIso: opts.confirmedIso ?? null,
-        notes: opts.notes ?? null,
-        confirmedSlotEndTimeHm: opts.confirmedSlotEndTimeHm ?? null,
-        patientClinicNote: opts.patientClinicNote ?? null,
-        patientClinicNoteAt: opts.patientClinicNoteAt ?? null,
-      }),
+    const jsonBody = JSON.stringify({
+      kind: "skinfit_row_sync",
+      externalRef: ref || null,
+      scheduleRequestId: schedId || null,
+      skinfitStatus: opts.skinfitStatus,
+      confirmedIso: opts.confirmedIso ?? null,
+      notes: opts.notes ?? null,
+      confirmedSlotEndTimeHm: opts.confirmedSlotEndTimeHm ?? null,
+      patientClinicNote: opts.patientClinicNote ?? null,
+      patientClinicNoteAt: opts.patientClinicNoteAt ?? null,
     });
+    const res = await postGoogleAppsScriptJson(
+      outbound.toString(),
+      secret,
+      jsonBody
+    );
+    const txt = await res.text().catch(() => "");
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      console.warn(
-        "[clinicSheetRowSync] mirror HTTP",
-        res.status,
-        txt.slice(0, 500)
-      );
+      console.warn("[clinicSheetRowSync] mirror HTTP", res.status, txt.slice(0, 500));
+      return {
+        ok: false,
+        skipped: false,
+        httpStatus: res.status,
+        detail: txt.slice(0, 500),
+      };
     }
+    return { ok: true, skipped: false, httpStatus: res.status, detail: txt.slice(0, 200) };
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     console.warn("[clinicSheetRowSync] mirror failed", e);
+    return { ok: false, skipped: false, detail: msg };
   }
 }

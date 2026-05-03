@@ -76,7 +76,14 @@ export async function notifyPatientScheduleAppointment(
     .where(eq(users.id, patientUserId))
     .limit(1);
   const token = row?.token?.trim();
-  if (!token) return;
+  if (!token) {
+    console.warn(
+      "[expoPush] notifyPatientScheduleAppointment skipped: no expo_push_token for user",
+      patientUserId,
+      title
+    );
+    return;
+  }
 
   const t = title.length > 56 ? `${title.slice(0, 53)}…` : title;
   const b =
