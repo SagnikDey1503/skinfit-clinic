@@ -512,6 +512,18 @@ function getCellByHeader_(sheet, rowNum, headerMap, name, fallback1Based) {
   return String(sheet.getRange(rowNum, col).getValue() || '').trim();
 }
 
+/**
+ * Google Sheets often stores typed times as Date (epoch day + clock).
+ * Skinfit expects "HH:mm" text — String(date) breaks normalizeSlotHm.
+ */
+function sheetCellToHmString_(value) {
+  if (value == null || value === '') return '';
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
+  }
+  return String(value).trim();
+}
+
 function setCellByHeader_(sheet, rowNum, headerMap, name, fallback1Based, value) {
   var col = headerMap[String(name).toLowerCase()] || fallback1Based;
   sheet.getRange(rowNum, col).setValue(value);
@@ -634,9 +646,11 @@ function maybePushRowToSkinfit_(sheet, rowNum) {
   var msg = getCellByHeader_(sheet, rowNum, map, 'crmPatientMessage', 27);
   var cancelReason = getCellByHeader_(sheet, rowNum, map, 'crmCancelledReason', 28);
   var apptTypeRaw = getCellByHeader_(sheet, rowNum, map, 'crmAppointmentType', 29);
-  var slotEndHm = map['crmslotendtimehm']
-    ? getCellByHeader_(sheet, rowNum, map, 'crmSlotEndTimeHm', map['crmslotendtimehm'])
-    : '';
+  var slotEndHm = '';
+  if (map['crmslotendtimehm']) {
+    var rawEnd = sheet.getRange(rowNum, map['crmslotendtimehm']).getValue();
+    slotEndHm = sheetCellToHmString_(rawEnd);
+  }
 
   if (action === 'confirm' && !iso) {
     setCellByHeader_(sheet, rowNum, map, 'crmSyncStatus', 30, 'ERROR');

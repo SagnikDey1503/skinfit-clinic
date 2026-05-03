@@ -17,7 +17,14 @@ export async function notifyClinicSheetRowMirrored(opts: {
   const urlRaw = process.env.CLINIC_SHEET_SYNC_WEBHOOK_URL?.trim();
   const secret = process.env.CLINIC_SHEET_WEBHOOK_SECRET?.trim();
   const ref = opts.externalRef?.trim();
-  if (!urlRaw || !secret || !ref) return;
+  if (!urlRaw || !secret || !ref) {
+    if (!urlRaw && ref) {
+      console.warn(
+        "[clinicSheetRowSync] skipped: set CLINIC_SHEET_SYNC_WEBHOOK_URL so the sheet status column can update after confirm/cancel"
+      );
+    }
+    return;
+  }
 
   try {
     const outbound = new URL(urlRaw);
