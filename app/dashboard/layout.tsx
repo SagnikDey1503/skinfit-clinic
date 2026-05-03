@@ -6,6 +6,7 @@ import { DashboardNav } from "./dashboard-nav";
 import { LogoutButton } from "./logout-button";
 import { DashboardClinicSupportBell } from "@/components/dashboard/DashboardClinicSupportBell";
 import { DashboardInboxProvider } from "@/components/dashboard/DashboardInboxContext";
+import { GlobalRefreshButton } from "@/components/ui/GlobalRefreshButton";
 import { getSessionUserId } from "@/src/lib/auth/get-session";
 import { markPastAppointmentsCompleted } from "@/src/lib/markPastAppointmentsCompleted";
 import { runAppointmentReminders } from "@/src/lib/runAppointmentReminders";
@@ -50,6 +51,7 @@ export default async function DashboardLayout({
           <DashboardNav />
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <GlobalRefreshButton compact />
             <DashboardClinicSupportBell />
             <Link
               href="/dashboard/profile"

@@ -15,6 +15,7 @@ import {
   getClinicSupportInboxLastSeenIso,
   getDoctorInboxLastSeenIso,
 } from "@/src/lib/clinicSupportInboxClient";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 import { patientInboxTypeParts } from "@/src/lib/patientNotificationInboxSummary";
 
 const POLL_MS = 15_000;
@@ -105,6 +106,7 @@ export function DashboardInboxProvider({ children }: { children: ReactNode }) {
     const bump = () => void refresh();
     window.addEventListener(CLINIC_SUPPORT_INBOX_EVENT, bump);
     window.addEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, bump);
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, bump);
     window.addEventListener("focus", bump);
     window.addEventListener("pageshow", bump);
     const onVis = () => {
@@ -114,6 +116,7 @@ export function DashboardInboxProvider({ children }: { children: ReactNode }) {
     return () => {
       window.removeEventListener(CLINIC_SUPPORT_INBOX_EVENT, bump);
       window.removeEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, bump);
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, bump);
       window.removeEventListener("focus", bump);
       window.removeEventListener("pageshow", bump);
       document.removeEventListener("visibilitychange", onVis);

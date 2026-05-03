@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Bell, Loader2, Menu, X } from "lucide-react";
 import clsx from "clsx";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 import { SCHEDULE_BELL_REFRESH_EVENT } from "@/src/lib/scheduleBellEvents";
 
 const links = [
@@ -84,17 +85,20 @@ export function DashboardNav() {
     };
     void tick();
     const onBellRefresh = () => void tick();
+    const onGlobalRefresh = () => void tick();
     const onFocus = () => void tick();
     const onVisible = () => {
       if (document.visibilityState === "visible") void tick();
     };
     window.addEventListener(SCHEDULE_BELL_REFRESH_EVENT, onBellRefresh);
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     const id = window.setInterval(() => void tick(), 15_000);
     return () => {
       cancelled = true;
       window.removeEventListener(SCHEDULE_BELL_REFRESH_EVENT, onBellRefresh);
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(id);

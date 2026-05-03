@@ -5,6 +5,7 @@ import { DoctorLogoutButton } from "@/components/doctor/DoctorLogoutButton";
 import { DoctorAppointmentsBell } from "@/components/doctor/DoctorAppointmentsBell";
 import { DoctorPatientChatBell } from "@/components/doctor/DoctorPatientChatBell";
 import { DoctorSosBell } from "@/components/doctor/DoctorSosBell";
+import { GlobalRefreshButton } from "@/components/ui/GlobalRefreshButton";
 import { getDoctorPortalUserId } from "@/src/lib/auth/doctor-access";
 
 export default async function DoctorPortalLayout({
@@ -36,6 +37,7 @@ export default async function DoctorPortalLayout({
             <DoctorAppointmentsBell />
             <DoctorPatientChatBell />
             <DoctorSosBell />
+            <GlobalRefreshButton compact />
             <DoctorLogoutButton />
           </nav>
         </div>

@@ -15,6 +15,7 @@ import {
 import { FACE_SCAN_CAPTURE_STEPS } from "@/src/lib/faceScanCaptures";
 import { MAX_VISIT_NOTE_ATTACHMENT_URI_LEN } from "@/src/lib/visitNoteAttachments";
 import { DOCTOR_PATIENT_CHAT_INBOX_REFRESH_EVENT } from "@/src/lib/doctorPatientChatInboxEvents";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 
 const MAX_RECORD_SECONDS = 120;
 const MAX_AUDIO_URI_LEN = 1_800_000;
@@ -351,9 +352,12 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
     }
   }, [patientId]);
 
-  const loadDoctorChat = useCallback(async () => {
-    setDoctorChatLoading(true);
-    setDoctorChatHint(null);
+  const loadDoctorChat = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (!silent) {
+      setDoctorChatLoading(true);
+      setDoctorChatHint(null);
+    }
     try {
       const res = await fetch(`/api/doctor/patients/${patientId}/chat`, {
         credentials: "include",
@@ -370,9 +374,13 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
       }
       setDoctorChatMessages(j.messages ?? []);
     } catch {
-      setDoctorChatHint("Could not load doctor chat.");
+      if (!silent) {
+        setDoctorChatHint("Could not load doctor chat.");
+      }
     } finally {
-      setDoctorChatLoading(false);
+      if (!silent) {
+        setDoctorChatLoading(false);
+      }
     }
   }, [patientId]);
 
@@ -383,6 +391,31 @@ export function DoctorPatientDetailClient({ patientId }: { patientId: string }) 
   useEffect(() => {
     void loadDoctorChat();
   }, [loadDoctorChat]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      await loadDoctorChat({ silent: true });
+    };
+    const id = window.setInterval(() => void pull(), 3500);
+    const onVisible = () => void pull();
+    const onGlobalRefresh = () => {
+      void load();
+      void loadDoctorChat({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
+    };
+  }, [load, loadDoctorChat]);
 
   useEffect(() => {
     const markSeenIfChatHash = () => {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bell } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 
 type SosItem = {
   patientId: string;
@@ -59,6 +60,13 @@ export function DoctorSosBell() {
 
   useEffect(() => {
     void load();
+    const id = window.setInterval(() => void load(), 30_000);
+    const onRefresh = () => void load();
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
+    };
   }, [load]);
 
   useEffect(() => {

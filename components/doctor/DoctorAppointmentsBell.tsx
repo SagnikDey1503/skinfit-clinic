@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Calendar } from "lucide-react";
 import { format } from "date-fns";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 
 type Item = {
   appointmentId: string;
@@ -40,7 +41,12 @@ export function DoctorAppointmentsBell() {
   useEffect(() => {
     void load();
     const id = window.setInterval(() => void load(), 120_000);
-    return () => window.clearInterval(id);
+    const onRefresh = () => void load();
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
+    };
   }, [load]);
 
   useEffect(() => {

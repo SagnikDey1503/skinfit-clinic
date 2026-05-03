@@ -19,6 +19,7 @@ import {
   markClinicSupportInboxSeenFromServer,
   markDoctorInboxSeenFromServer,
 } from "@/src/lib/clinicSupportInboxClient";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 
 const contacts = [
   {
@@ -410,6 +411,43 @@ export default function ChatPage() {
     void loadContactPreviews();
   }, [loadContactPreviews]);
 
+  useEffect(() => {
+    const onGlobalRefresh = () => {
+      void refreshSidebarUnread();
+      void loadContactPreviews();
+      if (activeAssistantRef.current === "ai") {
+        void (async () => {
+          try {
+            const { messages: refreshed } = await fetchPlainMessages("ai");
+            setMessages(refreshed);
+          } catch {
+            /* ignore */
+          }
+        })();
+        return;
+      }
+      const plainId = activeAssistantRef.current;
+      void (async () => {
+        try {
+          const { messages: refreshed, clinicReadThroughIso } =
+            await fetchPlainMessages(plainId);
+          setMessages(refreshed);
+          if (plainId === "support") {
+            markClinicSupportInboxSeenFromServer(clinicReadThroughIso);
+          }
+          if (plainId === "doctor") {
+            markDoctorInboxSeenFromServer(clinicReadThroughIso);
+          }
+        } catch {
+          /* ignore */
+        }
+      })();
+    };
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
+    return () =>
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
+  }, [fetchPlainMessages, loadContactPreviews, refreshSidebarUnread]);
+
   /** Pre-visit reminders only run server-side unless something triggers them; chat is client-only. */
   useEffect(() => {
     void (async () => {
@@ -531,6 +569,63 @@ export default function ChatPage() {
     seedAssistantGreeting,
     AI_GREETING,
   ]);
+
+  /**
+   * Doctor / Clinic Support threads: poll for new messages while this tab is open.
+   * (AI chat streams via send flow; plain threads had no live sync until this.)
+   */
+  useEffect(() => {
+    if (activeAssistant !== "doctor" && activeAssistant !== "support") return;
+
+    let cancelled = false;
+    let lastFingerprint: string | null = null;
+
+    async function syncPlainThread(force = false) {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden" &&
+        !force
+      ) {
+        return;
+      }
+      try {
+        const { messages: next, clinicReadThroughIso } =
+          await fetchPlainMessages(activeAssistant);
+        if (cancelled) return;
+        const fp = next.map((m) => m.id).join(",");
+        if (!force && lastFingerprint !== null && fp === lastFingerprint) return;
+        lastFingerprint = fp;
+        setMessages(next);
+        if (activeAssistant === "support") {
+          markClinicSupportInboxSeenFromServer(clinicReadThroughIso);
+        }
+        if (activeAssistant === "doctor") {
+          markDoctorInboxSeenFromServer(clinicReadThroughIso);
+        }
+        void loadContactPreviews();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const intervalMs = 3500;
+    const t = window.setInterval(() => void syncPlainThread(), intervalMs);
+    const onVisible = () => void syncPlainThread();
+    const onInboxRefresh = () => void syncPlainThread(true);
+    const onGlobalRefresh = () => void syncPlainThread(true);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, onInboxRefresh);
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
+    void syncPlainThread();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener(CLINIC_SUPPORT_INBOX_REFRESH_EVENT, onInboxRefresh);
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onGlobalRefresh);
+    };
+  }, [activeAssistant, fetchPlainMessages, loadContactPreviews]);
 
   async function sendMessage() {
     const text = inputValue.trim();

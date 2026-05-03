@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { DOCTOR_PATIENT_CHAT_INBOX_REFRESH_EVENT } from "@/src/lib/doctorPatientChatInboxEvents";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 
 type ChatItem = {
   patientId: string;
@@ -46,9 +47,11 @@ export function DoctorPatientChatBell() {
     const id = window.setInterval(() => void load(), 45_000);
     const onRefresh = () => void load();
     window.addEventListener(DOCTOR_PATIENT_CHAT_INBOX_REFRESH_EVENT, onRefresh);
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
     return () => {
       window.clearInterval(id);
       window.removeEventListener(DOCTOR_PATIENT_CHAT_INBOX_REFRESH_EVENT, onRefresh);
+      window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
     };
   }, [load]);
 

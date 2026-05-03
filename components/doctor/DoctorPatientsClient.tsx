@@ -8,6 +8,7 @@ import {
   Search,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { GLOBAL_LIVE_REFRESH_EVENT } from "@/src/lib/globalRefreshEvents";
 
 type PatientRow = {
   id: string;
@@ -75,6 +76,12 @@ export function DoctorPatientsClient({
   useEffect(() => {
     const t = window.setTimeout(() => void load(), 280);
     return () => clearTimeout(t);
+  }, [load]);
+
+  useEffect(() => {
+    const onRefresh = () => void load();
+    window.addEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(GLOBAL_LIVE_REFRESH_EVENT, onRefresh);
   }, [load]);
 
   return (
