@@ -357,27 +357,19 @@ export async function buildPatientTrackerReport(input: {
   const scanContext = isFirstOnboardingScan
     ? {
         kind: "onboarding_first_scan" as const,
-        title: "Onboarding baseline scan",
-        subtitle: "This is your starting point. Future scans are compared to this baseline.",
+        title: "",
+        subtitle: "",
       }
     : isSameWeekFollowup
       ? {
           kind: "same_week_followup" as const,
-          title: "Same-week progress check",
-          subtitle: `You scanned ${scanCountThisWeek} time(s) this week. Primary comparison uses last scan (Δ ${
-            lastScanDelta == null ? "—" : `${lastScanDelta > 0 ? "+" : ""}${lastScanDelta}`
-          }).`,
+          title: "",
+          subtitle: "",
         }
       : {
           kind: "new_week_followup" as const,
-          title: "New-week trend scan",
-          subtitle: `Primary comparison uses week averages (current week ${
-            currentWeekAverageKai == null ? "—" : Math.round(currentWeekAverageKai)
-          } vs previous week ${
-            previousWeekAverageKai == null ? "—" : Math.round(previousWeekAverageKai)
-          }, Δ ${weekAverageDelta == null ? "—" : `${weekAverageDelta > 0 ? "+" : ""}${weekAverageDelta}`}). Also showing last-scan Δ ${
-            lastScanDelta == null ? "—" : `${lastScanDelta > 0 ? "+" : ""}${lastScanDelta}`
-          }.`,
+          title: "",
+          subtitle: "",
         };
 
   const hookSentence =

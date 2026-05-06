@@ -13,6 +13,7 @@ const SLEEP = new Set(["under5", "5to6", "7to8", "8plus"]);
 const WATER = new Set(["under1l", "1to1_5l", "1_5to2l", "2lplus"]);
 const DIET = new Set(["vegetarian", "vegan", "nonveg", "mixed"]);
 const SUN = new Set(["minimal", "low", "moderate", "high"]);
+const SKIN_TYPE = new Set(["Dry", "Oily", "Combination", "Normal", "Sensitive"]);
 const PRIOR_TX = new Set(["yes", "no"]);
 const PRIOR_TX_DUR = new Set([
   "under1m",
@@ -119,13 +120,15 @@ export async function POST(req: Request) {
     typeof body.baselineSunExposure === "string"
       ? body.baselineSunExposure
       : "";
+  const skinType = typeof body.skinType === "string" ? body.skinType.trim() : "";
 
   if (
     !SENS.has(skinSensitivity) ||
     !SLEEP.has(baselineSleep) ||
     !WATER.has(baselineHydration) ||
     !DIET.has(baselineDietType) ||
-    !SUN.has(baselineSunExposure)
+    !SUN.has(baselineSunExposure) ||
+    !SKIN_TYPE.has(skinType)
   ) {
     return NextResponse.json(
       { error: "LIFESTYLE_INCOMPLETE" },
@@ -157,6 +160,7 @@ export async function POST(req: Request) {
       baselineHydration,
       baselineDietType,
       baselineSunExposure,
+      skinType,
       primaryGoal: primaryGoalLabel,
     })
     .where(eq(users.id, userId));

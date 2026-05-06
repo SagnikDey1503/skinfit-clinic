@@ -301,13 +301,6 @@ export function SkinScanReportBody({
     serverTracker !== undefined ? serverTracker : clientTracker;
   const showTracker = tracker != null;
 
-  const pdfResourceLines = showTracker
-    ? tracker!.resources.map((r) => ({
-        label: `${r.kind}: ${r.title}`,
-        href: r.url,
-      }))
-    : RECOMMENDED_VIDEOS.map((v) => ({ label: v.label, href: v.href }));
-
   const overall = clamp(metrics.overall_score);
   const lastScanLabel = formatDistanceToNow(scanDate, { addSuffix: true });
   const overlayUrl = annotatedImageUrl?.trim() || "";
@@ -943,25 +936,6 @@ export function SkinScanReportBody({
         )}
       </div>
 
-      <div
-        data-pdf-section
-        data-pdf-page-break-before="true"
-        className="relative w-full min-w-0 max-w-full break-inside-avoid overflow-x-clip px-5 pb-10 pt-6 sm:px-9"
-      >
-        <div className="rounded-xl border border-zinc-200/80 bg-white/80 px-4 py-4 sm:px-5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-800">
-            {showTracker ? "Resources (PDF)" : "Recommended videos"}
-          </p>
-          <ul className="mt-3 space-y-2.5 text-[11px] leading-snug text-zinc-700">
-            {pdfResourceLines.map((v) => (
-              <li key={v.href}>
-                <span className="font-semibold text-zinc-800">{v.label}: </span>
-                <span className="break-all text-zinc-600">{v.href}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
       </div>
 
       <div
@@ -976,20 +950,25 @@ export function SkinScanReportBody({
           {showTracker ? "Resource centre" : "Recommended videos"}
         </h3>
         {showTracker && tracker ? (
-          <ul className="mx-auto mt-6 max-w-xl space-y-3 text-center text-[13px] font-medium text-teal-800">
-            {tracker.resources.map((r) => (
-              <li key={r.url}>
-                <Link
-                  href={r.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-teal-200 underline-offset-4 hover:text-teal-950"
-                >
-                  [{r.kind}] {r.title}
-                </Link>
-              </li>
+          <div className="mx-auto mt-6 grid max-w-5xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {tracker.resources.slice(0, 3).map((r) => (
+              <Link
+                key={r.url}
+                href={r.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group rounded-2xl border border-zinc-200/80 bg-white/90 p-4 text-left shadow-[0_8px_22px_-16px_rgba(0,0,0,0.35)] transition duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_16px_30px_-18px_rgba(0,0,0,0.35)]"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-teal-700">
+                  {r.kind === "insight" ? "kAI insight" : r.kind}
+                </p>
+                <p className="mt-2 text-[14px] font-semibold leading-snug text-zinc-900 group-hover:text-zinc-950">
+                  {r.title}
+                </p>
+                <p className="mt-2 text-[12px] text-zinc-500">Personalized for this week</p>
+              </Link>
             ))}
-          </ul>
+          </div>
         ) : (
           <div className="mx-auto mt-6 grid max-w-3xl grid-cols-2 gap-3 sm:mt-8 sm:grid-cols-4 sm:gap-4">
             {RECOMMENDED_VIDEOS.map((v, i) => (

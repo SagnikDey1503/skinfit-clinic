@@ -16,4 +16,5 @@ export type OnboardingQuestionnaireDraftV1 = {
   water: string | null;
   diet: string | null;
   sun: string | null;
+  skinType?: string | null;
 };

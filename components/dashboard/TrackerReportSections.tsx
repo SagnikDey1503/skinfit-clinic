@@ -3,7 +3,6 @@
 import { motion } from "framer-motion";
 import type { PatientTrackerReport } from "@/src/lib/patientTrackerReport.types";
 
-const PEACH = "#F29C91";
 const easeOut = [0.22, 1, 0.36, 1] as const;
 
 function signed(n: number) {
@@ -16,6 +15,28 @@ function deltaClass(n: number) {
   return "text-zinc-600";
 }
 
+function valueForBar(n: number | null) {
+  if (typeof n !== "number") return 0;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+function weekSentence(report: PatientTrackerReport) {
+  const primary =
+    report.scores.deltaMode === "week_average"
+      ? report.scores.weekAverageDelta
+      : report.scores.lastScanDelta;
+  if (typeof primary !== "number") return "Baseline week captured. Build consistency now.";
+  if (primary >= 4) return "Your skin improved this week.";
+  if (primary <= -4) return "Tough week - here's why.";
+  return "Steady week - now let's unlock better gains.";
+}
+
+function kindBadge(kind: "article" | "video" | "insight") {
+  if (kind === "article") return "Article";
+  if (kind === "video") return "Video";
+  return "kAI insight";
+}
+
 export function TrackerReportSections({
   report,
   serifClassName,
@@ -23,163 +44,169 @@ export function TrackerReportSections({
   report: PatientTrackerReport;
   serifClassName: string;
 }) {
-  const { lastScanDelta, weekAverageDelta, deltaMode } = report.scores;
+  const { lastScanDelta, weekAverageDelta } = report.scores;
+  const plainOverview =
+    report.scanContext.kind === "onboarding_first_scan"
+      ? "This is your baseline. Next scans become more accurate as routine data builds."
+      : report.hookSentence;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: easeOut }}
-      className="mx-auto mt-3 w-full max-w-3xl space-y-4 break-inside-avoid px-1"
+      className="mx-auto mt-3 w-full max-w-xl space-y-5 break-inside-avoid"
     >
-      <section className="mx-auto w-full break-inside-avoid">
-        <div className="rounded-2xl border border-white bg-white px-5 py-4 shadow-[0_20px_40px_-16px_rgba(0,0,0,0.2)]">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            kAI Skin Score (this scan)
-          </p>
-          <p
-            className={`mt-1 text-[2.2rem] font-medium leading-none tracking-[-0.03em] ${serifClassName}`}
-            style={{ color: PEACH }}
-          >
-            {report.scores.kaiScore}%
-          </p>
-
-          <div className="mt-3 space-y-1.5 text-xs">
-            {typeof lastScanDelta === "number" ? (
-              <p
-                className={
-                  deltaMode === "last_scan"
-                    ? "font-semibold text-zinc-900"
-                    : "text-zinc-600"
-                }
-              >
-                <span className={deltaClass(lastScanDelta)}>{signed(lastScanDelta)}</span>{" "}
-                vs previous scan
-              </p>
-            ) : (
-              <p className="text-zinc-500">No previous scan yet — baseline only.</p>
-            )}
-            {typeof weekAverageDelta === "number" ? (
-              <p
-                className={
-                  deltaMode === "week_average"
-                    ? "font-semibold text-zinc-900"
-                    : "text-zinc-600"
-                }
-              >
-                <span className={deltaClass(weekAverageDelta)}>{signed(weekAverageDelta)}</span>{" "}
-                kAI vs previous week average
-                {report.scores.previousWeekAverageKai != null &&
-                report.scores.currentWeekAverageKai != null ? (
-                  <span className="font-normal text-zinc-500">
-                    {" "}
-                    (wk {report.scores.currentWeekAverageKai} vs{" "}
-                    {report.scores.previousWeekAverageKai})
-                  </span>
-                ) : null}
-              </p>
-            ) : null}
-          </div>
-          {typeof lastScanDelta === "number" || typeof weekAverageDelta === "number" ? (
-            <p className="mt-2 text-[10px] leading-snug text-zinc-500">
-              Bold line matches the primary trend mode for this scan (
-              {deltaMode === "week_average"
-                ? "week average when you have cross-week history"
-                : "last scan when same-week or baseline"}
-              ).
+      <section className="rounded-3xl border border-[#E8E2D8] bg-gradient-to-b from-white via-[#FFFDF9] to-[#FBF7F0] px-5 py-5 shadow-[0_22px_44px_-20px_rgba(90,72,45,0.28)]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+          Section 1 - Hook
+        </p>
+        <p className={`mt-2 text-[1.95rem] font-medium leading-tight text-zinc-900 ${serifClassName}`}>
+          {weekSentence(report)}
+        </p>
+        <div className="mt-4 grid grid-cols-3 gap-2.5">
+          <div className="rounded-2xl border border-[#EDE7DC] bg-white/90 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+            <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">kAI score</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-zinc-900">
+              {report.scores.kaiScore}
             </p>
-          ) : null}
+          </div>
+          <div className="rounded-2xl border border-[#EDE7DC] bg-white/90 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+            <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">Weekly delta</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">
+              {typeof weekAverageDelta === "number" ? (
+                <span className={deltaClass(weekAverageDelta)}>{signed(weekAverageDelta)}</span>
+              ) : typeof lastScanDelta === "number" ? (
+                <span className={deltaClass(lastScanDelta)}>{signed(lastScanDelta)}</span>
+              ) : (
+                <span className="text-zinc-500">-</span>
+              )}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-[#EDE7DC] bg-white/90 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+            <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">Consistency</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-zinc-900">
+              {report.scores.consistencyScore}%
+            </p>
+          </div>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-zinc-600">
+          {typeof report.scores.weekAverageDelta === "number" &&
+          report.scores.currentWeekAverageKai != null &&
+          report.scores.previousWeekAverageKai != null
+            ? `Weekly comparison: this week avg ${report.scores.currentWeekAverageKai} vs previous week avg ${report.scores.previousWeekAverageKai} (${signed(report.scores.weekAverageDelta)}).`
+            : typeof report.scores.lastScanDelta === "number"
+              ? `Weekly comparison unavailable yet. Last scan comparison: ${signed(report.scores.lastScanDelta)} vs previous scan.`
+              : "Weekly comparison unavailable yet. Take another scan in a different week to unlock it."}
+        </p>
+      </section>
+
+      <section className="rounded-3xl border border-[#E8E2D8] bg-gradient-to-b from-white via-[#FFFDF9] to-[#FBF7F0] px-5 py-5 shadow-[0_22px_44px_-20px_rgba(90,72,45,0.2)]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+          Section 2 - Feel Understood
+        </p>
+
+        <div className="mt-3">
+          <p className="text-sm font-semibold text-zinc-900">Your skin type</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {report.skinPills.slice(0, 3).map((pill) => (
+              <span
+                key={pill}
+                className="rounded-full border border-[#E6DFD4] bg-white px-3 py-1 text-xs font-semibold text-zinc-700 shadow-[0_1px_0_rgba(255,255,255,0.75)]"
+              >
+                {pill}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#EAE4DA] bg-white/90 px-3.5 py-3.5">
+          <p className="text-sm font-semibold text-zinc-900">This week's overview</p>
+          <div className="mt-2.5 space-y-2.5">
+            {report.paramRows.slice(0, 8).map((row) => (
+              <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_120px_46px_30px] items-center gap-2 text-xs">
+                <span className="font-medium text-zinc-700">{row.label}</span>
+                <div className="h-2 overflow-hidden rounded-full bg-[#ECEAE4]">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-teal-400 to-teal-600"
+                    style={{ width: `${valueForBar(row.value)}%` }}
+                  />
+                </div>
+                <span className="text-right font-semibold tabular-nums text-zinc-900">
+                  {row.value ?? "-"}
+                </span>
+                <span
+                  className={`text-right tabular-nums ${
+                    typeof row.delta === "number" ? deltaClass(row.delta) : "text-zinc-400"
+                  }`}
+                >
+                  {typeof row.delta === "number" ? signed(row.delta) : "-"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#EAE4DA] bg-white/90 px-3.5 py-3.5">
+          <p className="text-sm font-semibold text-zinc-900">Why your skin behaves this way</p>
+          <ul className="mt-2 space-y-2">
+            {report.causes.slice(0, 3).map((cause, idx) => (
+              <li key={`${cause.text}-${idx}`} className="flex items-start gap-2 text-sm text-zinc-700">
+                <span
+                  className={`mt-[6px] h-1.5 w-1.5 rounded-full ${
+                    cause.impact === "high"
+                      ? "bg-amber-600"
+                      : cause.impact === "medium"
+                        ? "bg-teal-600"
+                        : "bg-sky-600"
+                  }`}
+                />
+                <span>{cause.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="mt-3 text-sm leading-relaxed text-zinc-600">{plainOverview}</p>
+      </section>
+
+      <section className="rounded-3xl border border-[#E8E2D8] bg-gradient-to-b from-white via-[#FFFDF9] to-[#FBF7F0] px-5 py-5 shadow-[0_22px_44px_-20px_rgba(90,72,45,0.2)]">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+          Section 3 - Resource Centre
+        </p>
+        <div className="mt-3 space-y-2">
+          {report.resources.slice(0, 3).map((r) => (
+            <a
+              key={r.url}
+              href={r.url}
+              target="_blank"
+              rel="noreferrer"
+              className="group block rounded-2xl border border-[#EAE4DA] bg-white/92 px-3.5 py-3 transition-all duration-200 hover:-translate-y-[1px] hover:border-[#DED6C7] hover:shadow-[0_10px_24px_-16px_rgba(0,0,0,0.35)]"
+            >
+              <p className="text-sm font-semibold text-zinc-900 group-hover:text-zinc-950">{r.title}</p>
+              <p className="mt-0.5 text-xs text-zinc-500">{kindBadge(r.kind)} · personalized pick</p>
+            </a>
+          ))}
         </div>
       </section>
 
-      <section className="rounded-2xl border border-zinc-200/80 bg-white/90 px-5 py-4">
+      <section className="rounded-3xl border border-[#E8E2D8] bg-gradient-to-b from-white via-[#FFFDF9] to-[#FBF7F0] px-5 py-5 shadow-[0_22px_44px_-20px_rgba(90,72,45,0.2)]">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Scan context
+          Section 4 - This Week's Focus
         </p>
-        <p className="mt-2 text-sm font-semibold text-zinc-900">
-          {report.scanContext.title}
-        </p>
-        <p className="mt-1 text-sm text-zinc-600">{report.scanContext.subtitle}</p>
-        <p className="mt-3 text-sm leading-relaxed text-zinc-700">{report.insightText}</p>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-700">
-          {report.predictionText}
-        </p>
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200/80 bg-white/90 px-4 py-4 sm:px-5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Parameter analysis
-        </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          Eight parameters: this scan vs your last scan and vs the prior week&apos;s average (from
-          scans with model scores).
-        </p>
-
-        <div className="mt-4 -mx-1 overflow-x-auto rounded-xl border border-zinc-100">
-          <table className="w-full min-w-[600px] border-collapse text-left text-xs">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50/80 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                <th className="py-2.5 pl-3 pr-2">Parameter</th>
-                <th className="px-2 py-2.5 text-right tabular-nums">This scan</th>
-                <th className="px-2 py-2.5 text-right tabular-nums">Prev. scan</th>
-                <th className="px-2 py-2.5 text-right tabular-nums">Δ last</th>
-                <th className="px-2 py-2.5 text-right tabular-nums">Prev. wk avg</th>
-                <th className="py-2.5 pl-2 pr-3 text-right tabular-nums">Δ vs wk avg</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.paramRows.slice(0, 8).map((row) => (
-                <tr key={row.key} className="border-b border-zinc-100 last:border-0">
-                  <td className="py-2.5 pl-3 pr-2 font-medium text-zinc-800">{row.label}</td>
-                  <td className="px-2 py-2.5 text-right font-semibold tabular-nums text-zinc-900">
-                    {row.value ?? "—"}
-                    {row.source === "dummy" ? (
-                      <span className="ml-1 text-[10px] font-normal text-amber-700/90">est.</span>
-                    ) : null}
-                  </td>
-                  <td className="px-2 py-2.5 text-right tabular-nums text-zinc-700">
-                    {row.prevScanValue ?? "—"}
-                  </td>
-                  <td
-                    className={`px-2 py-2.5 text-right tabular-nums ${
-                      typeof row.delta === "number" ? deltaClass(row.delta) : "text-zinc-400"
-                    }`}
-                  >
-                    {typeof row.delta === "number" ? signed(row.delta) : "—"}
-                  </td>
-                  <td className="px-2 py-2.5 text-right tabular-nums text-zinc-700">
-                    {row.prevWeekAverage ?? "—"}
-                  </td>
-                  <td
-                    className={`py-2.5 pl-2 pr-3 text-right tabular-nums ${
-                      typeof row.weekAvgDelta === "number"
-                        ? deltaClass(row.weekAvgDelta)
-                        : "text-zinc-400"
-                    }`}
-                  >
-                    {typeof row.weekAvgDelta === "number" ? signed(row.weekAvgDelta) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200/80 bg-white/90 px-5 py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          3 things to focus on
-        </p>
-        <ol className="mt-3 space-y-2">
+        <ol className="mt-3 space-y-2.5">
           {report.focusActions.slice(0, 3).map((a) => (
             <li
               key={a.rank}
-              className="rounded-lg border border-zinc-200/80 bg-white px-3 py-2"
+              className="rounded-2xl border border-[#EAE4DA] bg-white/92 px-3.5 py-3"
             >
-              <p className="text-xs font-semibold text-zinc-900">
-                {a.rank}. {a.title}
+              <p className="text-sm font-semibold text-zinc-900">
+                <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#EEF4EF] text-xs font-bold text-emerald-700">
+                  {a.rank}
+                </span>
+                {a.title}
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-zinc-600">{a.detail}</p>
+              <p className="mt-1 text-sm leading-relaxed text-zinc-600">{a.detail}</p>
             </li>
           ))}
         </ol>

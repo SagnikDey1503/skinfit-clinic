@@ -46,23 +46,24 @@ const TRIGGERS: { id: string; label: string }[] = [
   { id: "products", label: "Products or ingredients" },
   { id: "unsure", label: "I'm not sure" },
 ];
+const SKIN_TYPES = ["Dry", "Oily", "Combination", "Normal", "Sensitive"] as const;
 
 function questionnaireProgress(
   step: number,
   priorTx: "yes" | "no" | null
 ): { displayStep: number; totalSteps: number } {
   if (priorTx === "yes") {
-    return { displayStep: step + 1, totalSteps: 10 };
+    return { displayStep: step + 1, totalSteps: 11 };
   }
   if (priorTx === "no") {
-    const order = [0, 1, 2, 3, 4, 6, 7, 8];
+    const order = [0, 1, 2, 3, 4, 6, 7, 8, 9];
     const ix = order.indexOf(step);
     return {
       displayStep: ix >= 0 ? ix + 1 : step + 1,
-      totalSteps: 9,
+      totalSteps: 10,
     };
   }
-  return { displayStep: step + 1, totalSteps: 10 };
+  return { displayStep: step + 1, totalSteps: 11 };
 }
 
 function copyForConcern(
@@ -134,6 +135,7 @@ export default function QuestionnaireScreen() {
   const [water, setWater] = useState<"under1l" | "1to1_5l" | "1_5to2l" | "2lplus" | null>(null);
   const [diet, setDiet] = useState<"vegetarian" | "vegan" | "nonveg" | "mixed" | null>(null);
   const [sun, setSun] = useState<"minimal" | "low" | "moderate" | "high" | null>(null);
+  const [skinType, setSkinType] = useState<(typeof SKIN_TYPES)[number] | null>(null);
   const [draftReady, setDraftReady] = useState(false);
 
   useEffect(() => {
@@ -145,7 +147,7 @@ export default function QuestionnaireScreen() {
         if (!raw) return;
         const d = JSON.parse(raw) as OnboardingQuestionnaireDraftV1;
         if (d.v !== 1) return;
-        if (typeof d.step === "number" && d.step >= 0 && d.step <= 8) {
+        if (typeof d.step === "number" && d.step >= 0 && d.step <= 9) {
           setStep(d.step);
         }
         if (d.concern && VALID_CONCERN.has(d.concern)) {
@@ -196,6 +198,12 @@ export default function QuestionnaireScreen() {
         ) {
           setSun(d.sun);
         }
+        if (
+          typeof d.skinType === "string" &&
+          (SKIN_TYPES as readonly string[]).includes(d.skinType)
+        ) {
+          setSkinType(d.skinType as (typeof SKIN_TYPES)[number]);
+        }
       } catch {
         /* ignore */
       } finally {
@@ -225,6 +233,7 @@ export default function QuestionnaireScreen() {
         water,
         diet,
         sun,
+        skinType,
       };
       void AsyncStorage.setItem(ONBOARDING_QUESTIONNAIRE_DRAFT_KEY, JSON.stringify(draft));
     }, 450);
@@ -244,6 +253,7 @@ export default function QuestionnaireScreen() {
     water,
     diet,
     sun,
+    skinType,
   ]);
 
   const toggleTrigger = (id: string) => {
@@ -271,6 +281,8 @@ export default function QuestionnaireScreen() {
         return sleep != null;
       case 8:
         return water != null && diet != null && sun != null;
+      case 9:
+        return skinType != null;
       default:
         return false;
     }
@@ -288,12 +300,13 @@ export default function QuestionnaireScreen() {
     water,
     diet,
     sun,
+    skinType,
   ]);
 
   const { displayStep, totalSteps } = questionnaireProgress(step, priorTx);
 
   async function submit() {
-    if (!token || !concern || !severity || !duration || !sensitivity || !sleep || !water || !diet || !sun || !priorTx) return;
+    if (!token || !concern || !severity || !duration || !sensitivity || !sleep || !water || !diet || !sun || !skinType || !priorTx) return;
     setBusy(true);
     setErr(null);
     try {
@@ -312,6 +325,7 @@ export default function QuestionnaireScreen() {
           baselineHydration: water,
           baselineDietType: diet,
           baselineSunExposure: sun,
+          skinType,
         }),
       });
       await AsyncStorage.removeItem(ONBOARDING_QUESTIONNAIRE_DRAFT_KEY);
@@ -324,7 +338,7 @@ export default function QuestionnaireScreen() {
   }
 
   function next() {
-    if (step === 8) {
+    if (step === 9) {
       void submit();
       return;
     }
@@ -610,6 +624,21 @@ export default function QuestionnaireScreen() {
         </>
       ) : null}
 
+      {step === 9 ? (
+        <>
+          <Text style={styles.q}>How would you describe your skin type?</Text>
+          {SKIN_TYPES.map((v) => (
+            <Pressable
+              key={v}
+              style={[styles.chip, skinType === v && styles.chipOn]}
+              onPress={() => setSkinType(v)}
+            >
+              <Text style={[styles.chipText, skinType === v && styles.chipTextOn]}>{v}</Text>
+            </Pressable>
+          ))}
+        </>
+      ) : null}
+
       <View style={styles.row}>
         <Pressable style={styles.btnGhost} onPress={back} disabled={busy}>
           <Text style={styles.btnGhostText}>Back</Text>
@@ -623,7 +652,7 @@ export default function QuestionnaireScreen() {
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.btnText}>
-              {step === 8 ? "Save & continue" : "Continue"}
+              {step === 9 ? "Save & continue" : "Continue"}
             </Text>
           )}
         </Pressable>

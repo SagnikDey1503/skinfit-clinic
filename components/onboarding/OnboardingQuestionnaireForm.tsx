@@ -34,6 +34,13 @@ const TRIGGERS: { id: string; label: string }[] = [
   { id: "products", label: "Products or ingredients" },
   { id: "unsure", label: "I'm not sure" },
 ];
+const SKIN_TYPES = [
+  "Dry",
+  "Oily",
+  "Combination",
+  "Normal",
+  "Sensitive",
+] as const;
 
 /** Visible step index / total (skips Q5b when prior treatment = no). */
 function questionnaireProgress(
@@ -41,17 +48,17 @@ function questionnaireProgress(
   priorTx: "yes" | "no" | null
 ): { displayStep: number; totalSteps: number } {
   if (priorTx === "yes") {
-    return { displayStep: step + 1, totalSteps: 10 };
+    return { displayStep: step + 1, totalSteps: 11 };
   }
   if (priorTx === "no") {
-    const order = [0, 1, 2, 3, 4, 6, 7, 8];
+    const order = [0, 1, 2, 3, 4, 6, 7, 8, 9];
     const ix = order.indexOf(step);
     return {
       displayStep: ix >= 0 ? ix + 1 : step + 1,
-      totalSteps: 9,
+      totalSteps: 10,
     };
   }
-  return { displayStep: step + 1, totalSteps: 10 };
+  return { displayStep: step + 1, totalSteps: 11 };
 }
 
 function copyForConcern(
@@ -136,6 +143,7 @@ export function OnboardingQuestionnaireForm() {
   const [sun, setSun] = useState<
     "minimal" | "low" | "moderate" | "high" | null
   >(null);
+  const [skinType, setSkinType] = useState<(typeof SKIN_TYPES)[number] | null>(null);
   const [draftReady, setDraftReady] = useState(false);
 
   useEffect(() => {
@@ -150,7 +158,7 @@ export function OnboardingQuestionnaireForm() {
         setDraftReady(true);
         return;
       }
-      if (typeof d.step === "number" && d.step >= 0 && d.step <= 8) {
+      if (typeof d.step === "number" && d.step >= 0 && d.step <= 9) {
         setStep(d.step);
       }
       if (d.concern && VALID_CONCERN.has(d.concern)) {
@@ -201,6 +209,12 @@ export function OnboardingQuestionnaireForm() {
       ) {
         setSun(d.sun);
       }
+      if (
+        typeof d.skinType === "string" &&
+        (SKIN_TYPES as readonly string[]).includes(d.skinType)
+      ) {
+        setSkinType(d.skinType as (typeof SKIN_TYPES)[number]);
+      }
     } catch {
       /* ignore */
     } finally {
@@ -227,6 +241,7 @@ export function OnboardingQuestionnaireForm() {
           water,
           diet,
           sun,
+          skinType,
         };
         localStorage.setItem(
           ONBOARDING_QUESTIONNAIRE_DRAFT_KEY,
@@ -252,6 +267,7 @@ export function OnboardingQuestionnaireForm() {
     water,
     diet,
     sun,
+    skinType,
   ]);
 
   const toggleTrigger = (id: string) => {
@@ -281,6 +297,8 @@ export function OnboardingQuestionnaireForm() {
         return sleep != null;
       case 8:
         return water != null && diet != null && sun != null;
+      case 9:
+        return skinType != null;
       default:
         return false;
     }
@@ -298,6 +316,7 @@ export function OnboardingQuestionnaireForm() {
     water,
     diet,
     sun,
+    skinType,
   ]);
 
   const { displayStep, totalSteps } = questionnaireProgress(step, priorTx);
@@ -312,6 +331,7 @@ export function OnboardingQuestionnaireForm() {
       !water ||
       !diet ||
       !sun ||
+      !skinType ||
       !priorTx
     )
       return;
@@ -336,6 +356,7 @@ export function OnboardingQuestionnaireForm() {
           baselineHydration: water,
           baselineDietType: diet,
           baselineSunExposure: sun,
+          skinType,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -364,7 +385,7 @@ export function OnboardingQuestionnaireForm() {
   }
 
   function next() {
-    if (step === 8) {
+    if (step === 9) {
       void submit();
       return;
     }
@@ -713,6 +734,26 @@ export function OnboardingQuestionnaireForm() {
         </>
       ) : null}
 
+      {step === 9 ? (
+        <>
+          <h2 className="text-lg font-bold text-zinc-900">
+            How would you describe your skin type?
+          </h2>
+          <div className="space-y-2">
+            {SKIN_TYPES.map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={chip(skinType === v)}
+                onClick={() => setSkinType(v)}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
       <div className="flex gap-3 pt-4">
         <button
           type="button"
@@ -728,7 +769,7 @@ export function OnboardingQuestionnaireForm() {
           disabled={!canNext || busy}
           className="flex-1 rounded-2xl bg-teal-600 py-3.5 text-center text-[15px] font-bold text-white shadow-sm transition-colors hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-45"
         >
-          {busy ? "Saving…" : step === 8 ? "Save & continue" : "Continue"}
+          {busy ? "Saving…" : step === 9 ? "Save & continue" : "Continue"}
         </button>
       </div>
     </div>
